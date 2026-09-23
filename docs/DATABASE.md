@@ -599,6 +599,16 @@ Liquidación `proveedor_id, localizacion_id, periodo_desde/hasta, total, estado 
 
 ---
 
+## Officemart — toma física (script officemart-013)
+
+### `tomas_fisicas` + `tomas_fisicas_detalle`
+Toma `almacen_id, estado ('Abierta'|'Cerrada'|'Cancelada'), fecha_congelacion, fecha_cierre, notas, total_faltante, total_sobrante, lineas_ajustadas, usuario, cerrada_por`; detalle `(toma_id, producto_id, localizacion_id) UNIQUE, stock_sistema, conteo (NULL = sin contar), diferencia, costo_unitario, contado_por`. RLS por tenant.
+
+### Candado: `inventario_congelado(p_almacen_id)` + trigger `trg_inventario_congelado`
+RPC `SECURITY INVOKER` que devuelve true si el almacén tiene una toma Abierta del tenant; el trigger `BEFORE INSERT ON transacciones_inventario` lanza `INVENTARIO_CONGELADO` como red de seguridad. La app pregunta antes de mover stock (`assertInventarioNoCongelado` / `assertAlmacenesNoCongelados` en `lib/services/inventario-candado.ts`, sin dependencias): `crearVenta`, `registrarRecepcion` y el flujo clásico de recepción, `procesarTraslado(sMultiples)`, `procesarAjusteInventario` (salvo `permitirCongelado`), `registrarConsumoEtapa`. `lib/services/toma-fisica.ts`: `abrirToma` (foto desde `vista_stock_por_localizacion` + costo), `registrarConteo`, `parsearConteosXlsx` + pura `mapearConteosImportados`, pura `calcularResumenToma`, `cerrarToma` (marca Cerrada **antes** de aplicar los ajustes con `procesarAjusteInventario(..., { permitirCongelado: true })`, motivo "Toma física #N"), `cancelarToma`. Módulo "Toma Física".
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

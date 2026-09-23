@@ -4,6 +4,7 @@ import { aplicarEntradaCompra } from "@/lib/services/stock"
 import { registrarMovimientoCaja } from "@/lib/services/caja-chica"
 import { registrarMovimientoCuenta } from "@/lib/services/cuentas"
 import { registrarAuditoria } from "@/lib/services/auditoria"
+import { assertInventarioNoCongelado } from "@/lib/services/inventario-candado"
 import { getHondurasNowISO, getHondurasTodayISODate } from "@/lib/utils/honduras-time"
 import { getDetallesCompra, type CompraDetalle, type CompraEncabezado } from "@/lib/services/compras"
 
@@ -284,6 +285,9 @@ export async function registrarRecepcion(
   if (input.pago?.metodo === "Banco" && !input.pago.cuenta_id) {
     return { success: false, error: "Elige la cuenta bancaria del pago.", recepcionId: null }
   }
+  // Toma física abierta en el almacén destino (officemart-013): no se recibe.
+  const congelado = await assertInventarioNoCongelado(supabase, input.almacen_id)
+  if (congelado) return { success: false, error: congelado, recepcionId: null }
 
   const detallePorId = new Map<number, CompraDetalle>()
   for (const d of detalles) if (d.id != null) detallePorId.set(d.id, d)

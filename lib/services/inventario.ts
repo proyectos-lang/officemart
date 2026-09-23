@@ -1,6 +1,7 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from '@/lib/services/tenant-stamp'
 import { aplicarEntradaCompra, ajustarStock } from '@/lib/services/stock'
+import { assertAlmacenesNoCongelados } from '@/lib/services/inventario-candado'
 import { getHondurasNowISO } from '@/lib/utils/honduras-time'
 
 /**
@@ -871,6 +872,9 @@ export async function procesarIngresoManual(data: IngresoManualData): Promise<{ 
       console.log('[procesarIngresoManual] Stamp invalido:', stamp)
       return { success: false, error: SESION_INVALIDA_ERROR }
     }
+    // Toma física abierta en el almacén (officemart-013).
+    const congelado = await assertAlmacenesNoCongelados(supabase, [data.almacen_id])
+    if (congelado) return { success: false, error: congelado }
 
     // ----- SALIDA manual: resta stock sin cambiar el costo promedio -----
     if (data.tipo === 'salida') {
@@ -1005,6 +1009,9 @@ export async function procesarTraslado(data: TrasladoData): Promise<{ success: b
       console.log('[procesarTraslado] Stamp invalido:', stamp)
       return { success: false, error: SESION_INVALIDA_ERROR }
     }
+    // Toma física abierta en origen o destino (officemart-013).
+    const congelado = await assertAlmacenesNoCongelados(supabase, [data.origen_almacen_id, data.destino_almacen_id])
+    if (congelado) return { success: false, error: congelado }
 
     const refId = Date.now()
     
@@ -1119,6 +1126,9 @@ export async function procesarTrasladosMultiples(
       console.log('[procesarTrasladosMultiples] Stamp invalido:', stamp)
       return { success: false, error: SESION_INVALIDA_ERROR, procesados: 0 }
     }
+    // Toma física abierta en origen o destino (officemart-013).
+    const congelado = await assertAlmacenesNoCongelados(supabase, [origen_almacen_id, destino_almacen_id])
+    if (congelado) return { success: false, error: congelado, procesados: 0 }
 
     const refIdBase = Date.now()
     const insertData: {
@@ -1228,7 +1238,8 @@ export function calcularLineasAjuste(lineas: AjusteLineaInput[]): AjusteLineaCal
  */
 export async function procesarAjusteInventario(
   lineas: AjusteLineaInput[],
-  motivo?: string
+  motivo?: string,
+  opts: { permitirCongelado?: boolean } = {}
 ): Promise<{ success: boolean; procesados: number; error: string | null }> {
   const cambios = calcularLineasAjuste(lineas)
   if (cambios.length === 0) {
@@ -1244,6 +1255,12 @@ export async function procesarAjusteInventario(
   const stamp = await getTenantStamp(supabase)
   if (!isValidStamp(stamp)) {
     return { success: false, procesados: 0, error: SESION_INVALIDA_ERROR }
+  }
+
+  // Toma física abierta (officemart-013): solo el cierre de la toma ajusta.
+  if (!opts.permitirCongelado) {
+    const congelado = await assertAlmacenesNoCongelados(supabase, cambios.map((c) => c.almacen_id))
+    if (congelado) return { success: false, procesados: 0, error: congelado }
   }
 
   let procesados = 0

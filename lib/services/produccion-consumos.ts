@@ -3,6 +3,7 @@ import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from "@/lib/servi
 import { matAjustarStock } from "@/lib/services/produccion-materiales"
 import { ajustarStock } from "@/lib/services/stock"
 import { registrarAuditoria } from "@/lib/services/auditoria"
+import { assertAlmacenesNoCongelados } from "@/lib/services/inventario-candado"
 import { getHondurasNowISO } from "@/lib/utils/honduras-time"
 
 /**
@@ -232,6 +233,9 @@ export async function registrarConsumoEtapa(input: {
   }
   const invalido = validarStockConsumo(items, stocks)
   if (invalido) return { data: null, error: invalido }
+  // Toma física abierta en el almacén de los productos (officemart-013).
+  const congelado = await assertAlmacenesNoCongelados(supabase, items.filter((i) => i.tipo_item === "producto").map((i) => i.almacen_id))
+  if (congelado) return { data: null, error: congelado }
 
   const { data: orden } = await supabase.from("produccion_ordenes").select("id, estado").eq("id", input.orden_id).maybeSingle()
   if (!orden) return { data: null, error: "La orden no existe" }
@@ -316,9 +320,11 @@ export async function registrarConsumoEtapa(input: {
         fecha,
         ...stamp,
       }
-      let k = await supabase.from("transacciones_inventario").insert({ ...base, tipo_movimiento: "Salida Produccion", cantidad, referencia_tipo: "orden_produccion" })
+      // Convención del kardex: las salidas van con cantidad NEGATIVA (como
+      // 'Salida Venta'); el stock por localización se calcula sumando.
+      let k = await supabase.from("transacciones_inventario").insert({ ...base, tipo_movimiento: "Salida Produccion", cantidad: -cantidad, referencia_tipo: "orden_produccion" })
       if (k.error && /referencia_tipo/i.test(k.error.message || "")) {
-        k = await supabase.from("transacciones_inventario").insert({ ...base, tipo_movimiento: "Salida Produccion", cantidad })
+        k = await supabase.from("transacciones_inventario").insert({ ...base, tipo_movimiento: "Salida Produccion", cantidad: -cantidad })
       }
       if (k.error) {
         // Tipo no permitido por un CHECK: 'Ajuste' con cantidad negativa.

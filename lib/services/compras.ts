@@ -1,6 +1,7 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from '@/lib/services/tenant-stamp'
 import { aplicarEntradaCompra } from '@/lib/services/stock'
+import { assertInventarioNoCongelado } from '@/lib/services/inventario-candado'
 import { getHondurasNowISO, getHondurasTodayISODate } from '@/lib/utils/honduras-time'
 import { createGasto, getConceptosGasto, createConceptoGasto } from '@/lib/services/gastos'
 
@@ -488,6 +489,9 @@ async function procesarRecepcionClasica(data: RecepcionData): Promise<{ success:
       console.log('[procesarRecepcion] Stamp invalido:', stamp)
       return { success: false, error: SESION_INVALIDA_ERROR }
     }
+    // Toma física abierta en el almacén destino (officemart-013).
+    const congelado = await assertInventarioNoCongelado(supabase, data.almacen_id)
+    if (congelado) return { success: false, error: congelado }
 
     // Calculate total_compra_local
     const totalCompraLocal = data.detalles.reduce((acc, d) => acc + (d.cantidad_recibida * d.costo_final_local), 0)

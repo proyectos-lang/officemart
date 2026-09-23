@@ -3,6 +3,7 @@ import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from '@/lib/servi
 import { registrarMovimientoCaja, getSesionAbierta } from '@/lib/services/caja-chica'
 import { registrarMovimientoCuenta, recalcCadenaSaldoCuenta } from '@/lib/services/cuentas'
 import { ajustarStock } from '@/lib/services/stock'
+import { assertInventarioNoCongelado } from '@/lib/services/inventario-candado'
 import { getHondurasNowISO } from '@/lib/utils/honduras-time'
 import { revertirDevolucionesDeVenta } from '@/lib/services/devoluciones'
 import { emitirCorrelativoCai } from '@/lib/services/facturacion-cai'
@@ -970,6 +971,10 @@ export async function crearVenta(
         console.warn('[crearVenta] no se emitio numero fiscal CAI:', corrErr)
       }
     }
+
+    // Toma física abierta en el almacén de despacho (officemart-013): no se vende.
+    const congelado = await assertInventarioNoCongelado(supabase, data.almacen_id)
+    if (congelado) return { data: null, error: congelado }
 
     // 1. Insert venta encabezado with almacen_id (sello completo: empresa + usuario)
     // fecha_venta HN-as-UTC por defecto si el caller no la envia (p.ej. aprobar

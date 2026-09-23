@@ -407,4 +407,30 @@ export const TUTORIALES_INVENTARIO: TutorialModulo[] = [
     ],
     keywords: ["consignacion", "consignado", "mercancia en consignacion", "liquidar proveedor", "vitrina", "propietario", "se paga al vender", "inventario consignado"],
   },
+  {
+    modulo: "Toma Física",
+    titulo: "Toma Física (inventario congelado)",
+    descripcion:
+      "Cuenta físicamente un almacén con el inventario congelado: nadie vende, recibe, traslada ni ajusta mientras dura la toma; al cerrar se aplican los ajustes por diferencia.",
+    queHace: [
+      "Nueva toma: eliges el almacén; el sistema fotografía el stock por localización (líneas con existencias) con su costo y CONGELA el almacén: Nueva Venta, recepciones, traslados, ajustes y consumos de producción de ese almacén quedan bloqueados con el mensaje 'Inventario congelado' hasta cerrar o cancelar la toma.",
+      "Conteo: escribe el conteo por línea y guarda; con lector de barras, cada lectura suma 1 al producto; o descarga la 'Hoja de conteo' (Excel), llénala e 'Importar conteos' (columnas Código/Producto, Localización, Conteo). Filtro 'Solo sin contar' y buscador.",
+      "Resumen en vivo: líneas, contadas, con diferencia, faltante y sobrante valorados al costo y neto.",
+      "Cerrar toma: aplica un ajuste de inventario por cada línea con diferencia (kardex 'Ajuste' con motivo 'Toma física #N', bitácora en Ajustes de Inventario y Auditoría) y descongela el almacén. Las líneas sin contar se dejan como estaban, salvo que marques 'tratarlas como 0'.",
+      "Cancelar: descongela sin ajustar. Exporta el resultado a Excel.",
+    ],
+    queNoHace: [
+      "No cambia el costo promedio: los ajustes usan el costo actual del producto.",
+      "No cuenta productos sin existencias en el sistema: si aparece algo que el sistema no tenía, ingrésalo después con Movimientos Manuales (o cuéntalo como sobrante en una línea existente de ese producto).",
+      "Solo puede haber una toma abierta por almacén; otros almacenes siguen operando normal.",
+    ],
+    operaciones: [
+      { titulo: "Inventario de cierre de mes", pasos: ["Inventario → Toma Física → Nueva toma → almacén → Congelar y abrir.", "Reparte la hoja de conteo (Excel) o cuenta en pantalla / con lector; guarda los conteos.", "Revisa faltantes y sobrantes; 'Cerrar toma' aplica los ajustes y libera el almacén."] },
+    ],
+    faqs: [
+      { pregunta: "Nueva Venta dice 'Inventario congelado'.", respuesta: "Hay una toma física abierta en ese almacén. Termina el conteo y ciérrala (o cancélala) en Inventario → Toma Física; o vende desde otro almacén." },
+      { pregunta: "Cerré la toma pero un ajuste falló.", respuesta: "La toma queda Cerrada (almacén libre) y el mensaje indica en qué línea se detuvo; completa el resto en Inventario → Ajustes de Inventario con la hoja de resultado." },
+    ],
+    keywords: ["toma fisica", "inventario fisico", "conteo", "congelar inventario", "inventario congelado", "diferencias", "faltante", "sobrante", "hoja de conteo", "lector de barras", "cierre de mes"],
+  },
 ]
