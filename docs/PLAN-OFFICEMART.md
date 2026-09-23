@@ -384,3 +384,48 @@ es recortar alcance de A a lo de las semanas 1–3 y negociar el resto.
    app.
 9. ¿Qué documentos se firman primero (cotización, acta de entrega, recibos,
    RRHH) y quién firma: cliente externo, empleado o ambos?
+
+---
+
+## 8. Estado de avance (23-sep-2026)
+
+Todas las fases del plan de ejecución (`.claude/plans`, 8 fases) están
+implementadas y commiteadas en `main`, salvo la Fase 8 (intercompañía,
+opcional "si se contrata"). Cada entrega pasó `tsc`, `lint` (0 errores),
+`vitest` (32 archivos / 229 pruebas) y `build`.
+
+| Fase | Entrega | Script | Commit |
+|---|---|---|---|
+| 1.1 | Base común (auditoría, correlativos, tesorería con fecha/referencia) | 001 | aplicado |
+| 1.2 | Cimientos T1–T4 (líneas, vendedores/zonas, clientes, proveedores) | 002 | aplicado |
+| 2.1 | Anulación "compensar", recibos multi-factura, reclamos, NC 06 | 003 | aplicado |
+| 2.2 | Puntos de facturación + CAI por punto + snapshot fiscal | 004 | 2fe22a0 |
+| 2.3 | Precio por categoría/subcategoría/línea en listas | 005 | 4e82bad |
+| 2.4 | Cotizaciones (COT-, PDF, conversión a venta, OT) | 006 | 6bd8d5d |
+| 2.5–2.7 | Estado de cuenta, reportes dinámicos de ventas, trazabilidad | 007 | e991e2f |
+| 3.1 | Recepciones parciales, backorder, CxP por OC, anticipos | 008 | ac97752 |
+| 3.2–3.3 | Estadísticas de OC / estado de cuenta proveedor, reposición | 009 | ac97752 |
+| 4.1 | Órdenes de trabajo, consumo por etapa, tablero de piso | 010 | bb4d187 |
+| 4.2 | Comisiones de vendedores | 011 | 6ee3701 |
+| 4.3 | Consignación | 012 | 677b2ad |
+| 4.4 | Toma física con congelamiento | 013 | fdbd4c8 |
+| 4.5 | Conciliación bancaria | 014 | 5d7f718 |
+| 4.6 | Balance operativo | 015 | 07d4a91 |
+| 5 | CRM (pipeline, contactos, agenda, reportes) | 016 | 77c66b7 |
+| 6 | Firma digital (enlaces por firmante, estampado pdf-lib, verificación) | 017 | 28ea9b3 |
+| 7 | RRHH y nómina (empleados, asistencia, novedades, nómina, parámetros) | 018 | 28f5eab |
+| 8 | Intercompañía | — | no iniciada (opcional) |
+
+**Pendiente del usuario para ponerlo en marcha**
+
+1. Ejecutar en el SQL Editor de Supabase, en orden, `scripts/officemart-004`
+   … `officemart-018` (los 000–003 ya están). El 017 crea el bucket privado
+   `documentos` y sus políticas de Storage.
+2. Habilitar por empresa desde `/plataforma` los módulos nuevos (nacen
+   opt-in) y asignarlos a los usuarios.
+3. Variables opcionales en Vercel: `RESEND_API_KEY` y `RESEND_FROM` (correo
+   de firma digital); sin ellas el enlace se comparte manualmente.
+4. Validar con el contador los parámetros 2026 de nómina (RRHH → Parámetros)
+   y avisarle del cambio de CMV (3.1) antes de activar recepciones parciales.
+5. Decidir repo GitHub/Vercel propios, marca ("EasyCount" hoy) y publicar la
+   entrada de `lib/constants/actualizaciones.ts` (no se publica sin aprobación).
