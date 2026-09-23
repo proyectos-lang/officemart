@@ -49,6 +49,7 @@ import {
   MessageSquareWarning,
   ScrollText,
   MapPin,
+  Route,
   type LucideIcon,
 } from "lucide-react"
 
@@ -80,10 +81,11 @@ export interface ModuloGranular {
 }
 
 /**
- * 50 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 53 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
- * Facturación", "Cotizaciones" y TODOS los de la
+ * Facturación", "Cotizaciones", "Estado de Cuenta", "Reportes de Ventas",
+ * "Trazabilidad" y TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -117,6 +119,11 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // NUEVO (no-base, officemart-006): cotizaciones/presupuestos con vigencia,
   // estados y conversión a venta desde Nueva Venta.
   { nombre: "Cotizaciones", href: "/ventas/cotizaciones", categoria: "Ventas", icon: FileText },
+  // NUEVO (no-base, officemart-007): estado de cuenta por cliente (saldo
+  // corrido, antigüedad, PDF/Excel) y reporte dinámico de ventas por
+  // punto/vendedor/zona/línea/categoría + productos sin movimiento.
+  { nombre: "Estado de Cuenta", href: "/ventas/estado-cuenta", categoria: "Ventas", icon: ClipboardList },
+  { nombre: "Reportes de Ventas", href: "/ventas/reportes", categoria: "Ventas", icon: BarChart3 },
 
   // ── Compras ────────────────────────────────────────────────────────────
   { nombre: "Orden de Compra", href: "/compras/orden", categoria: "Compras", icon: FileText },
@@ -144,6 +151,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   { nombre: "Ajustes de Inventario", href: "/inventario/ajustes", categoria: "Inventario", icon: Scale },
   { nombre: "Ajuste de Costo", href: "/inventario/ajuste-costo", categoria: "Inventario", icon: Coins },
   { nombre: "Valoracion", href: "/inventario/valoracion", categoria: "Inventario", icon: DollarSign },
+  // NUEVO (no-base, officemart-007): trazabilidad por producto y por orden de
+  // compra (lotes FIFO: de qué OC vino cada unidad y a qué venta fue).
+  { nombre: "Trazabilidad", href: "/inventario/trazabilidad", categoria: "Inventario", icon: Route },
 
   // ── Produccion (modulos NUEVOS, nacen deshabilitados: no estan en MODULOS_BASE) ──
   { nombre: "Operaciones de Produccion", href: "/produccion/operaciones", categoria: "Produccion", icon: Workflow },

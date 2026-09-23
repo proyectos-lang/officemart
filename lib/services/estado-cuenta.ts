@@ -247,7 +247,7 @@ export async function getEstadoCuentaCliente(
       if (filtrar) q = q.is("anulada_at", null)
       return q
     })
-    if (vErr) return { data: null, error: vErr }
+    if (vErr) return { data: null, error: (vErr as { message?: string }).message || String(vErr) }
     const ventas: VentaEC[] = (ventasRaw || []).map((v) => ({
       id: Number(v.id),
       numero_factura: String(v.numero_factura ?? ""),
@@ -262,14 +262,18 @@ export async function getEstadoCuentaCliente(
     for (let i = 0; i < ids.length; i += CHUNK) {
       const lote = ids.slice(i, i + CHUNK)
       // 2) Abonos (con número de recibo si lo tienen; reintento sin la relación).
-      let pagosRes = await supabase
+      let pagosData: Record<string, unknown>[] = []
+      const conRecibo = await supabase
         .from("pagos_ventas")
         .select("venta_id, fecha_pago, monto, metodo_pago, recibo_id, recibos_cobro:recibo_id (numero_recibo)")
         .in("venta_id", lote)
-      if (pagosRes.error) {
-        pagosRes = await supabase.from("pagos_ventas").select("venta_id, fecha_pago, monto, metodo_pago").in("venta_id", lote)
+      if (!conRecibo.error) {
+        pagosData = (conRecibo.data || []) as Record<string, unknown>[]
+      } else {
+        const simple = await supabase.from("pagos_ventas").select("venta_id, fecha_pago, monto, metodo_pago").in("venta_id", lote)
+        pagosData = (simple.data || []) as Record<string, unknown>[]
       }
-      for (const p of (pagosRes.data || []) as Record<string, unknown>[]) {
+      for (const p of pagosData) {
         const rc = Array.isArray(p.recibos_cobro) ? p.recibos_cobro[0] : p.recibos_cobro
         abonos.push({
           venta_id: Number(p.venta_id),

@@ -11,6 +11,7 @@
 --      subcategoría, línea, marca, almacén; cantidad, venta, costo, utilidad
 --      y `anulada_at` (la app filtra vigentes).
 --   3. Módulo "Reportes de Ventas".
+--   4. Módulo "Trazabilidad" (sin tabla: lotes FIFO sobre transacciones_inventario).
 -- =========================================================================
 
 INSERT INTO officemart.modulos (nombre) VALUES ('Estado de Cuenta') ON CONFLICT (nombre) DO NOTHING;
@@ -70,5 +71,6 @@ LEFT JOIN officemart.almacenes a           ON a.id = ve.almacen_id;
 GRANT SELECT ON officemart.vista_ventas_reporte TO authenticated;
 
 INSERT INTO officemart.modulos (nombre) VALUES ('Reportes de Ventas') ON CONFLICT (nombre) DO NOTHING;
+INSERT INTO officemart.modulos (nombre) VALUES ('Trazabilidad')       ON CONFLICT (nombre) DO NOTHING;
 
 NOTIFY pgrst, 'reload schema';

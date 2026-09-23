@@ -533,6 +533,19 @@ Nullable. `crearVenta({punto_facturacion})` usa la serie interna del punto (`sig
 
 ---
 
+## Officemart — estado de cuenta y reportes de ventas (script officemart-007)
+
+### Estado de cuenta (sin tabla)
+`lib/services/estado-cuenta.ts`: `getEstadoCuentaCliente(clienteId, {desde, hasta, hoyISO})` lee ventas vigentes del cliente, `pagos_ventas` (con `recibos_cobro.numero_recibo` si aplica) y `devoluciones_encabezado` vigentes, y arma con la pura `construirEstadoCuenta` el saldo inicial (movimientos anteriores a `desde`), los movimientos con saldo corrido, totales, facturas pendientes (`total_venta − valorpago`) y antigüedad (`calcularAntiguedad`: corriente / 1–30 / 31–60 / 61–90 / >90). Página `ventas/estado-cuenta?clienteId=` (PDF con jspdf-autotable, Excel); accesos desde Clientes y CxC. Módulo "Estado de Cuenta".
+
+### `vista_ventas_reporte`
+Vista `security_invoker` (respeta RLS): una fila por `ventas_detalle` con `venta_id, numero_factura, fecha_venta, fecha (date), anulada_at, estado_pago, punto_facturacion_id/punto_codigo/punto_nombre, vendedor_id/vendedor_nombre, cliente_id/cliente_nombre, zona_id/zona_nombre, almacen_id/almacen_nombre, producto_id/producto_nombre/producto_codigo, categoria_id/nombre, subcategoria_id/nombre, linea_id/nombre, marca_id/nombre, cantidad, precio_unitario, venta, costo_unitario, costo, utilidad`. `lib/services/reportes-ventas.ts`: `getLineasReporte(filtros)` (paginado 1000, solo vigentes), puras `agruparReporte(lineas, dimension, medida)` / `totalesReporte`, y `getProductosSinMovimiento(dias, hoy)` (productos con stock × `vista_ultima_venta_producto`). Página `ventas/reportes` (módulo "Reportes de Ventas").
+
+### Trazabilidad (sin tabla)
+`lib/services/trazabilidad.ts`: `getMovimientosProducto(id)` (kardex completo con `productos/almacenes/localizaciones` y referencias resueltas: ventas, compras, devoluciones, traslados) y `getTrazaCompra(compraId)` (OC + entradas `'Entrada Compra'` con `referencia_id = compra` + lotes). Puras: `signoMovimiento` (entradas +, salidas −, ajustes con su signo) y `asignarLotesFIFO(movs)` (cada entrada es un lote por producto+almacén; las salidas siguientes lo consumen en orden de fecha; lo no cubierto va a `sinLote`). Página `inventario/trazabilidad` (módulo "Trazabilidad").
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

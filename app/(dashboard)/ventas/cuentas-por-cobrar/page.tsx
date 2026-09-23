@@ -60,7 +60,9 @@ import {
 } from "@/lib/services/recibos"
 import { getCuentas, type CuentaConfig } from "@/lib/services/cuentas"
 import { formatCurrency } from "@/lib/utils/format"
-import { Receipt, Ban } from "lucide-react"
+import { Receipt, Ban, ClipboardList } from "lucide-react"
+import Link from "next/link"
+import { useAuth } from "@/lib/contexts/auth-context"
 
 // ===== Antigüedad de saldos (aging) — helpers puros a nivel de módulo =====
 /** Días transcurridos desde la fecha de la venta hasta hoy. */
@@ -117,6 +119,7 @@ export default function CuentasPorCobrarPage() {
   const [anulandoRecibo, setAnulandoRecibo] = React.useState(false)
 
   const { toast } = useToast()
+  const { hasModulo } = useAuth()
 
   async function loadData() {
     setLoading(true)
@@ -477,6 +480,11 @@ export default function CuentasPorCobrarPage() {
             <Button size="sm" onClick={() => openReciboDialog()} disabled={recibosPendiente || cuentas.length === 0} title={recibosPendiente ? RECIBOS_FEATURE_PENDING : "Un pago aplicado a varias facturas del cliente"}>
               <Receipt className="h-4 w-4 mr-1" /> Recibo de cobro
             </Button>
+            {hasModulo("Estado de Cuenta") && (
+              <Button size="sm" variant="outline" asChild title="Estado de cuenta del cliente">
+                <Link href="/ventas/estado-cuenta"><ClipboardList className="h-4 w-4 mr-1" /> Estado de cuenta</Link>
+              </Button>
+            )}
           </div>
 
           {/* Mobile Card View */}

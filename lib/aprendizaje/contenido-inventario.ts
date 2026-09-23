@@ -313,4 +313,45 @@ export const TUTORIALES_INVENTARIO: TutorialModulo[] = [
     ],
     keywords: ["valor inventario", "costo", "margen", "stock", "estancado", "reporte", "excel"],
   },
+  {
+    modulo: "Trazabilidad",
+    titulo: "Trazabilidad (de la compra a la venta)",
+    descripcion:
+      "Reconstruye de qué orden de compra vino cada unidad de un producto y a qué venta, traslado o salida fue, usando el kardex y una asignación FIFO por almacén.",
+    queHace: [
+      "Por producto: lista los lotes (cada entrada: compra, traslado entrante, ingreso manual, devolución) con la cantidad que entró, el costo, cuántas unidades siguen en stock y a qué documentos salieron (facturas, traslados, ajustes). Debajo, el kardex completo.",
+      "Por orden de compra: elige la OC y ve, producto por producto, cuándo se recibió, en qué almacén, cuánto queda y a qué ventas fue lo que ya salió.",
+      "La asignación es FIFO dentro de cada almacén: la primera entrada se consume con las primeras salidas siguientes. Un traslado saca de un almacén y crea un lote nuevo en el destino.",
+      "Exporta a Excel cualquiera de las dos vistas.",
+    ],
+    queNoHace: [
+      "No es un control de lotes/series físicos: la asignación es contable (FIFO), no identifica unidades individuales.",
+      "Las salidas anteriores a la primera entrada registrada (inventario inicial cargado sin kardex) aparecen como 'Salidas sin lote'.",
+      "No modifica inventario ni costos; es solo consulta.",
+    ],
+    operaciones: [
+      {
+        titulo: "Saber de qué compra salió lo que se vendió",
+        pasos: [
+          "Abre Inventario → Trazabilidad, pestaña 'Por producto', y busca el producto.",
+          "En 'Lotes y destinos' ubica la factura en la columna Destinos: la fila es el lote (OC y proveedor) del que salió.",
+        ],
+      },
+      {
+        titulo: "Ver a dónde fue una orden de compra",
+        pasos: [
+          "Pestaña 'Por orden de compra', busca la OC por número, factura del proveedor o proveedor.",
+          "Cada fila es un producto recibido: 'En stock' es lo que queda de esa OC y 'A dónde fue' resume ventas y traslados con sus documentos.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        pregunta: "El 'En stock' por lotes no coincide con el stock del producto.",
+        respuesta:
+          "Suele deberse a movimientos previos al kardex (inventario inicial) o ajustes negativos que consumieron lotes. Revisa 'Salidas sin lote' y los ajustes en el kardex de abajo.",
+      },
+    ],
+    keywords: ["trazabilidad", "lote", "fifo", "de que compra", "a donde fue", "origen", "destino", "orden de compra", "kardex", "rastrear"],
+  },
 ]

@@ -548,4 +548,96 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
       "aprobada", "facturar cotizacion", "convertir a venta", "pdf cotizacion", "condiciones", "cot",
     ],
   },
+  {
+    modulo: "Estado de Cuenta",
+    titulo: "Estado de Cuenta de cliente",
+    descripcion:
+      "Movimientos de un cliente (facturas, abonos y devoluciones) con saldo corrido, antigüedad de saldos y facturas pendientes; exportable a PDF y Excel.",
+    queHace: [
+      "Elige un cliente y un rango de fechas: verás el saldo inicial (todo lo anterior al rango), cada factura (débito), cada abono o recibo de cobro y cada devolución (créditos), con el saldo después de cada movimiento.",
+      "Resumen: saldo inicial, facturado, abonos + devoluciones y saldo final del período.",
+      "Antigüedad de saldos a hoy: corriente, 1–30, 31–60, 61–90 y más de 90 días, más la lista de facturas pendientes con sus días.",
+      "PDF con encabezado de tu empresa (para enviar al cliente) y Excel de los movimientos.",
+      "Se abre desde el menú, desde Cuentas por Cobrar (botón 'Estado de cuenta') o desde Clientes (ícono de estado de cuenta en cada cliente).",
+    ],
+    queNoHace: [
+      "No incluye ventas anuladas ni recibos anulados (sus abonos se eliminan al anular el recibo).",
+      "No registra pagos: los abonos se hacen en Cuentas por Cobrar / Historial.",
+      "No usa una tabla propia: se calcula al momento desde ventas, abonos y devoluciones, así que siempre está al día.",
+    ],
+    operaciones: [
+      {
+        titulo: "Enviar el estado de cuenta a un cliente",
+        pasos: [
+          "Abre Ventas → Estado de Cuenta y elige el cliente (o entra desde Clientes con el ícono de estado de cuenta).",
+          "Ajusta 'Desde' y 'Hasta' si solo quieres un período; déjalo vacío para toda la historia.",
+          "Revisa el saldo final y las facturas pendientes; presiona PDF y envíaselo al cliente.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        pregunta: "El saldo final no coincide con Cuentas por Cobrar.",
+        respuesta:
+          "Cuentas por Cobrar muestra el saldo por factura a hoy (total − pagado). El saldo final del estado de cuenta depende del rango de fechas: si 'Hasta' es una fecha pasada, no incluye lo posterior. Sin rango deben coincidir; si no, revisa devoluciones sin reembolso registrado.",
+      },
+    ],
+    keywords: ["estado de cuenta", "saldo", "antiguedad", "cartera", "cliente debe", "movimientos cliente", "pdf cliente", "cxc"],
+  },
+  {
+    modulo: "Reportes de Ventas",
+    titulo: "Reportes de Ventas (dinámico y sin movimiento)",
+    descripcion:
+      "Cruza cualquier dimensión (vendedor, zona, punto, cliente, producto, categoría, subcategoría, línea, marca, almacén, día, mes) con cualquier medida (venta, cantidad, costo, utilidad, margen, facturas) y detecta productos sin movimiento.",
+    queHace: [
+      "Reporte dinámico: elige rango de fechas y filtros (punto, vendedor, zona, categoría, línea), luego 'Agrupar por' y 'Medida'. Muestra totales del período, gráfico de los 15 mayores, tabla con venta, cantidad, costo, utilidad, margen %, facturas y participación %, y exporta a Excel.",
+      "Trabaja sobre las líneas vendidas vigentes (las ventas anuladas no cuentan). El costo es el costo promedio al momento de la venta; utilidad = venta − costo.",
+      "Sin movimiento: productos con existencias y sin ventas en los últimos N días (o nunca vendidos), con su valor de inventario inmovilizado, última venta y días; exportable.",
+      "Las dimensiones sin dato (venta sin vendedor, producto sin línea) se agrupan como '(Sin …)' para que los totales cuadren con el Historial.",
+    ],
+    queNoHace: [
+      "No reemplaza el Dashboard de Ventas (tendencias generales) ni el Cierre diario (caja): es un explorador para análisis comercial.",
+      "No muestra ventas anuladas ni devoluciones como negativas: para el neto con devoluciones usa el Estado de Resultados.",
+      "Requiere el script officemart-007 (vista `vista_ventas_reporte`); si falta, la pantalla lo indica.",
+    ],
+    operaciones: [
+      {
+        titulo: "Ventas por vendedor del mes",
+        pasos: [
+          "Abre Ventas → Reportes de Ventas; el rango viene del 1.º del mes a hoy.",
+          "Presiona Consultar; en 'Agrupar por' elige Vendedor y en 'Medida' Venta (L).",
+          "Cambia la medida a Utilidad o Margen % para ver la rentabilidad por vendedor; exporta a Excel si lo necesitas.",
+        ],
+      },
+      {
+        titulo: "Qué líneas se venden en cada zona",
+        pasos: [
+          "Filtra por Zona y agrupa por Línea (o al revés: filtra por Línea y agrupa por Zona).",
+          "Usa la columna Part. % para ver el peso de cada grupo en el total.",
+        ],
+      },
+      {
+        titulo: "Detectar inventario inmovilizado",
+        pasos: [
+          "Pestaña 'Sin movimiento', escribe los días (p. ej. 90) y Consultar.",
+          "Ordena mentalmente por Valor: arriba están los productos que más dinero tienen parado; decide promoción, traslado o devolución al proveedor.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        pregunta: "El total no coincide con el Dashboard de Ventas.",
+        respuesta:
+          "El reporte suma líneas (cantidad × precio) sin descuento global ni ISV; el Dashboard suma el total de la factura. Compara con el Historial → Detalle por Producto, que usa la misma base.",
+      },
+      {
+        pregunta: "Un producto aparece en '(Sin línea)'.",
+        respuesta: "No tiene línea asignada en Configuración → Productos. Asígnala y el reporte lo reflejará de inmediato (no hay que recalcular nada).",
+      },
+    ],
+    keywords: [
+      "reporte", "reportes", "ventas por vendedor", "ventas por zona", "ventas por linea", "ventas por categoria",
+      "ventas por punto", "sin movimiento", "inventario inmovilizado", "margen", "utilidad", "participacion", "excel",
+    ],
+  },
 ]

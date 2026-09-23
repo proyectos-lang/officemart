@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Users, Pencil, Trash2, Loader2, Cake, RotateCcw, Ban } from "lucide-react"
+import { Plus, Users, Pencil, Trash2, Loader2, Cake, RotateCcw, Ban, ClipboardList } from "lucide-react"
+import Link from "next/link"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { getZonas, getVendedores, type Zona, type Vendedor } from "@/lib/services/vendedores"
@@ -60,6 +61,7 @@ export default function ClientesConfigPage() {
   const mostrarListas = hasModulo("Listas de Precios")
   // Modulo "Vendedores y Zonas" (script officemart-002): zona y vendedor por cliente.
   const mostrarVendedores = hasModulo("Vendedores y Zonas")
+  const verEstadoCuenta = hasModulo("Estado de Cuenta")
   const [zonas, setZonas] = useState<Zona[]>([])
   const [vendedores, setVendedores] = useState<Vendedor[]>([])
 
@@ -329,6 +331,11 @@ export default function ClientesConfigPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-1 ml-2">
+                          {verEstadoCuenta && cliente.id != null && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="Estado de cuenta">
+                              <Link href={`/ventas/estado-cuenta?clienteId=${cliente.id}`}><ClipboardList className="h-4 w-4" /></Link>
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(cliente)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -416,6 +423,11 @@ export default function ClientesConfigPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
+                            {verEstadoCuenta && cliente.id != null && (
+                              <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="Estado de cuenta">
+                                <Link href={`/ventas/estado-cuenta?clienteId=${cliente.id}`}><ClipboardList className="h-4 w-4" /></Link>
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
