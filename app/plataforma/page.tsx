@@ -179,12 +179,15 @@ export default async function PlataformaPage() {
                 <th className="px-4 py-2 font-medium" title="Exige elegir un vendedor en Nueva Venta (requiere el módulo 'Vendedores y Zonas' habilitado)">
                   Vendedor obligatorio
                 </th>
+                <th className="px-4 py-2 font-medium" title="Permite BORRAR ventas (copia en 'Eliminadas') además de anularlas. Con CAI conviene dejarlo apagado: solo anular">
+                  Permitir borrar ventas
+                </th>
               </tr>
             </thead>
             <tbody>
               {empresas.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="px-4 py-10 text-center text-stone-400">
+                  <td colSpan={15} className="px-4 py-10 text-center text-stone-400">
                     Sin empresas para mostrar.
                   </td>
                 </tr>
@@ -299,6 +302,15 @@ export default async function PlataformaPage() {
                         initial={e.flags.ventas_vendedor_obligatorio}
                         onLabel="Obligatorio"
                         offLabel="Opcional"
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <FlagToggle
+                        razonSocialId={e.id}
+                        flag="ventas_permitir_eliminar"
+                        initial={e.flags.ventas_permitir_eliminar}
+                        onLabel="Permitido"
+                        offLabel="Solo anular"
                       />
                     </td>
                   </tr>

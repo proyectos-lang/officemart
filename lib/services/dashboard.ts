@@ -1,5 +1,6 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import { getHondurasTodayISODate } from '@/lib/utils/honduras-time'
+import { ejecutarVigentes } from '@/lib/services/ventas-filtros'
 
 // ==================== INTERFACES ====================
 
@@ -75,21 +76,29 @@ export async function getDashboardMetrics(
     // las columnas de dia-de-negocio HN-as-UTC (fecha_venta, etc.).
     const firstDayOfMonth = `${getHondurasTodayISODate().slice(0, 7)}-01T00:00:00.000Z`
 
-    // Ventas Mes: total facturado del mes actual.
-    let ventasMesRes: any = await supabase
-      .from('ventas_encabezado')
-      .select('total_venta')
-      .eq('razon_social_id', razonSocialId)
-      .gte('fecha_venta', firstDayOfMonth)
+    // Ventas Mes: total facturado del mes actual (solo ventas vigentes).
+    let ventasMesRes: any = await ejecutarVigentes<any>((filtrar) => {
+      let q = supabase
+        .from('ventas_encabezado')
+        .select('total_venta')
+        .eq('razon_social_id', razonSocialId)
+        .gte('fecha_venta', firstDayOfMonth)
+      if (filtrar) q = q.is('anulada_at', null)
+      return q
+    })
 
     // Por Cobrar (cartera): saldo pendiente de TODAS las ventas, sin filtrar
     // por mes. Una venta de un mes anterior con saldo abierto sigue siendo
     // dinero por cobrar hoy. Si la columna `valorpago` no existe, hacemos
     // fallback historico (no se puede inferir el saldo y queda en 0).
-    let carteraRes: any = await supabase
-      .from('ventas_encabezado')
-      .select('total_venta, valorpago')
-      .eq('razon_social_id', razonSocialId)
+    let carteraRes: any = await ejecutarVigentes<any>((filtrar) => {
+      let q = supabase
+        .from('ventas_encabezado')
+        .select('total_venta, valorpago')
+        .eq('razon_social_id', razonSocialId)
+      if (filtrar) q = q.is('anulada_at', null)
+      return q
+    })
 
     let tieneValorpago = true
     if (carteraRes.error && /valorpago/i.test(carteraRes.error.message || '')) {
@@ -101,10 +110,14 @@ export async function getDashboardMetrics(
         .from('productos')
         .select('stock_total, costo_promedio')
         .eq('razon_social_id', razonSocialId),
-      supabase
-        .from('ventas_detalle')
-        .select('utilidad_linea, ventas_encabezado!inner(razon_social_id)')
-        .eq('ventas_encabezado.razon_social_id', razonSocialId),
+      ejecutarVigentes<any>((filtrar) => {
+        let q = supabase
+          .from('ventas_detalle')
+          .select('utilidad_linea, ventas_encabezado!inner(razon_social_id)')
+          .eq('ventas_encabezado.razon_social_id', razonSocialId)
+        if (filtrar) q = q.is('ventas_encabezado.anulada_at', null)
+        return q
+      }),
     ])
 
     // Log errores de cada consulta para debug
@@ -119,7 +132,7 @@ export async function getDashboardMetrics(
     )
 
     const utilidadBruta = (detallesRes.data || []).reduce(
-      (acc, d: any) => acc + (d.utilidad_linea || 0),
+      (acc: number, d: any) => acc + (d.utilidad_linea || 0),
       0
     )
 
@@ -172,16 +185,24 @@ export async function getVentasVsCobros(
     const startDate = new Date(baseUtcMs - (dias - 1) * 86400000).toISOString()
 
     const [ventasRes, pagosRes] = await Promise.all([
-      supabase
-        .from('ventas_encabezado')
-        .select('total_venta, fecha_venta')
-        .eq('razon_social_id', razonSocialId)
-        .gte('fecha_venta', startDate),
-      supabase
-        .from('pagos_ventas')
-        .select('monto, fecha_pago, ventas_encabezado!inner(razon_social_id)')
-        .eq('ventas_encabezado.razon_social_id', razonSocialId)
-        .gte('fecha_pago', startDate),
+      ejecutarVigentes<any>((filtrar) => {
+        let q = supabase
+          .from('ventas_encabezado')
+          .select('total_venta, fecha_venta')
+          .eq('razon_social_id', razonSocialId)
+          .gte('fecha_venta', startDate)
+        if (filtrar) q = q.is('anulada_at', null)
+        return q
+      }),
+      ejecutarVigentes<any>((filtrar) => {
+        let q = supabase
+          .from('pagos_ventas')
+          .select('monto, fecha_pago, ventas_encabezado!inner(razon_social_id)')
+          .eq('ventas_encabezado.razon_social_id', razonSocialId)
+          .gte('fecha_pago', startDate)
+        if (filtrar) q = q.is('ventas_encabezado.anulada_at', null)
+        return q
+      }),
     ])
 
     if (ventasRes.error) console.log('[Dashboard] ventasVsCobros ventas error:', ventasRes.error)
@@ -219,14 +240,18 @@ export async function getTopProductos(
   if (razonSocialId == null) return { data: [], error: null }
 
   try {
-    const { data, error } = await supabase
-      .from('ventas_detalle')
-      .select('producto_id, cantidad, productos(nombre), ventas_encabezado!inner(razon_social_id)')
-      .eq('ventas_encabezado.razon_social_id', razonSocialId)
+    const { data, error } = await ejecutarVigentes<any>((filtrar) => {
+      let q = supabase
+        .from('ventas_detalle')
+        .select('producto_id, cantidad, productos(nombre), ventas_encabezado!inner(razon_social_id)')
+        .eq('ventas_encabezado.razon_social_id', razonSocialId)
+      if (filtrar) q = q.is('ventas_encabezado.anulada_at', null)
+      return q
+    })
 
     if (error) {
       console.log('[Dashboard] getTopProductos error:', error)
-      return { data: [], error: error.message }
+      return { data: [], error: error.message || 'Error' }
     }
 
     const aggregated: Record<number, { nombre: string; cantidad: number }> = {}
@@ -333,15 +358,19 @@ export async function getTopClientesDeudores(
   if (razonSocialId == null) return { data: [], error: null }
 
   try {
-    const { data: ventasData, error: ventasError } = await supabase
-      .from('ventas_encabezado')
-      .select('id, cliente_id, total_venta, clientes(nombre)')
-      .eq('razon_social_id', razonSocialId)
-      .neq('estado_pago', 'Pagado')
+    const { data: ventasData, error: ventasError } = await ejecutarVigentes<any>((filtrar) => {
+      let q = supabase
+        .from('ventas_encabezado')
+        .select('id, cliente_id, total_venta, clientes(nombre)')
+        .eq('razon_social_id', razonSocialId)
+        .neq('estado_pago', 'Pagado')
+      if (filtrar) q = q.is('anulada_at', null)
+      return q
+    })
 
     if (ventasError) {
       console.log('[Dashboard] getTopClientesDeudores ventas error:', ventasError)
-      return { data: [], error: ventasError.message }
+      return { data: [], error: ventasError.message || 'Error' }
     }
 
     const ventaIds = (ventasData || []).map((v: any) => v.id)

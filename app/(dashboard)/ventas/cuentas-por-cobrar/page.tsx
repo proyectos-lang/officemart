@@ -54,6 +54,13 @@ import {
   type PagoVenta,
   type VentaDetalle
 } from "@/lib/services/ventas"
+import {
+  registrarReciboCobro, anularReciboCobro, getRecibos, distribuirCobro,
+  RECIBOS_FEATURE_PENDING, type ReciboCobro,
+} from "@/lib/services/recibos"
+import { getCuentas, type CuentaConfig } from "@/lib/services/cuentas"
+import { formatCurrency } from "@/lib/utils/format"
+import { Receipt, Ban } from "lucide-react"
 
 // ===== Antigüedad de saldos (aging) — helpers puros a nivel de módulo =====
 /** Días transcurridos desde la fecha de la venta hasta hoy. */
@@ -88,19 +95,141 @@ export default function CuentasPorCobrarPage() {
   const [showDetalleDialog, setShowDetalleDialog] = React.useState(false)
   const [detalles, setDetalles] = React.useState<VentaDetalle[]>([])
   const [loadingDetalles, setLoadingDetalles] = React.useState(false)
-  
+
+  // Abono por Banco: cuenta destino (script officemart-003: todo abono es un recibo).
+  const [pagoCuentaId, setPagoCuentaId] = React.useState("")
+  const [cuentasBanco, setCuentasBanco] = React.useState<CuentaConfig[]>([])
+
+  // Recibo de cobro multi-factura
+  const [recibos, setRecibos] = React.useState<ReciboCobro[]>([])
+  const [recibosPendiente, setRecibosPendiente] = React.useState(false)
+  const [showReciboDialog, setShowReciboDialog] = React.useState(false)
+  const [reciboClienteId, setReciboClienteId] = React.useState<number | null>(null)
+  const [reciboMonto, setReciboMonto] = React.useState("")
+  const [reciboMetodo, setReciboMetodo] = React.useState<"Efectivo" | "Banco" | "Otro">("Efectivo")
+  const [reciboCuentaId, setReciboCuentaId] = React.useState("")
+  const [reciboReferencia, setReciboReferencia] = React.useState("")
+  // venta_id -> monto aplicado (texto para edición)
+  const [reciboAplicaciones, setReciboAplicaciones] = React.useState<Record<number, string>>({})
+  const [savingRecibo, setSavingRecibo] = React.useState(false)
+  const [reciboAAnular, setReciboAAnular] = React.useState<ReciboCobro | null>(null)
+  const [motivoAnularRecibo, setMotivoAnularRecibo] = React.useState("")
+  const [anulandoRecibo, setAnulandoRecibo] = React.useState(false)
+
   const { toast } = useToast()
 
   async function loadData() {
     setLoading(true)
-    const [cuentasRes, pagosRes] = await Promise.all([
+    const [cuentasRes, pagosRes, recibosRes, cuentasBancoRes] = await Promise.all([
       getCuentasPorCobrar(),
-      getAllPagos()
+      getAllPagos(),
+      getRecibos(),
+      getCuentas(),
     ])
-    
+
     if (!cuentasRes.error) setCuentas(cuentasRes.data)
     if (!pagosRes.error) setPagos(pagosRes.data)
+    setRecibos(recibosRes.data)
+    setRecibosPendiente(recibosRes.error === RECIBOS_FEATURE_PENDING)
+    setCuentasBanco((cuentasBancoRes.data || []).filter((c) => c.activo ?? true))
     setLoading(false)
+  }
+
+  // ---- Recibo de cobro (varias facturas del mismo cliente) ----
+  const clientesConSaldo = React.useMemo(() => {
+    const m = new Map<number, { id: number; nombre: string; saldo: number; facturas: number }>()
+    for (const c of cuentas) {
+      const cur = m.get(c.cliente_id) || { id: c.cliente_id, nombre: c.cliente_nombre, saldo: 0, facturas: 0 }
+      cur.saldo += c.saldo_pendiente
+      cur.facturas += 1
+      m.set(c.cliente_id, cur)
+    }
+    return [...m.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+  }, [cuentas])
+
+  const facturasReciboCliente = React.useMemo(
+    () => cuentas.filter((c) => c.cliente_id === reciboClienteId).sort((a, b) => a.fecha_venta.localeCompare(b.fecha_venta)),
+    [cuentas, reciboClienteId]
+  )
+
+  const totalAplicado = React.useMemo(
+    () => +Object.values(reciboAplicaciones).reduce((a, v) => a + (Number(v) || 0), 0).toFixed(2),
+    [reciboAplicaciones]
+  )
+
+  function openReciboDialog(clienteId?: number) {
+    setReciboClienteId(clienteId ?? null)
+    setReciboMonto("")
+    setReciboMetodo("Efectivo")
+    setReciboCuentaId("")
+    setReciboReferencia("")
+    setReciboAplicaciones({})
+    setShowReciboDialog(true)
+  }
+
+  /** Reparte el monto escrito entre las facturas del cliente (antiguas primero). */
+  function distribuirAutomatico() {
+    const monto = Number(reciboMonto) || 0
+    const dist = distribuirCobro(
+      facturasReciboCliente.map((f) => ({ venta_id: f.id, saldo: f.saldo_pendiente, fecha: f.fecha_venta })),
+      monto
+    )
+    const next: Record<number, string> = {}
+    for (const d of dist) next[d.venta_id] = d.monto.toFixed(2)
+    setReciboAplicaciones(next)
+  }
+
+  async function handleRegistrarRecibo() {
+    if (!reciboClienteId) {
+      toast({ title: "Elige el cliente", variant: "destructive" })
+      return
+    }
+    const aplicaciones = Object.entries(reciboAplicaciones)
+      .map(([id, m]) => ({ venta_id: Number(id), monto: Number(m) || 0 }))
+      .filter((a) => a.monto > 0)
+    if (aplicaciones.length === 0) {
+      toast({ title: "Sin montos", description: "Indica cuánto se aplica a cada factura (o usa 'Distribuir').", variant: "destructive" })
+      return
+    }
+    if (reciboMetodo === "Banco" && !reciboCuentaId) {
+      toast({ title: "Falta la cuenta", description: "Elige la cuenta bancaria del cobro.", variant: "destructive" })
+      return
+    }
+    setSavingRecibo(true)
+    const { data, error } = await registrarReciboCobro({
+      cliente_id: reciboClienteId,
+      metodo_pago: reciboMetodo,
+      cuenta_id: reciboMetodo === "Banco" ? Number(reciboCuentaId) : null,
+      referencia: reciboReferencia || null,
+      aplicaciones,
+    })
+    setSavingRecibo(false)
+    if (error || !data) {
+      toast({ title: "No se registró el recibo", description: error || "", variant: "destructive" })
+      return
+    }
+    toast({ title: `Recibo ${data.numero_recibo} registrado`, description: `${formatCurrency(totalAplicado)} aplicados a ${aplicaciones.length} factura(s).` })
+    setShowReciboDialog(false)
+    loadData()
+  }
+
+  async function handleAnularRecibo() {
+    if (!reciboAAnular) return
+    if (!motivoAnularRecibo.trim()) {
+      toast({ title: "Falta el motivo", variant: "destructive" })
+      return
+    }
+    setAnulandoRecibo(true)
+    const { error } = await anularReciboCobro(reciboAAnular.id, motivoAnularRecibo.trim())
+    setAnulandoRecibo(false)
+    if (error) {
+      toast({ title: "No se pudo anular", description: error, variant: "destructive" })
+      return
+    }
+    toast({ title: "Recibo anulado", description: "El dinero salió de tesorería y las facturas recuperaron su saldo." })
+    setReciboAAnular(null)
+    setMotivoAnularRecibo("")
+    loadData()
   }
 
   React.useEffect(() => {
@@ -172,12 +301,20 @@ export default function CuentasPorCobrarPage() {
       return
     }
     
+    if (pagoMetodo === "Banco" && !pagoCuentaId) {
+      toast({ title: "Falta la cuenta", description: "Elige la cuenta bancaria donde entró el dinero", variant: "destructive" })
+      return
+    }
+
     setSavingPago(true)
-    const { error } = await registrarPago({
-      venta_id: selectedCuenta.id,
-      monto: monto,
-      metodo_pago: pagoMetodo
-    })
+    const { error } = await registrarPago(
+      {
+        venta_id: selectedCuenta.id,
+        monto: monto,
+        metodo_pago: pagoMetodo,
+      },
+      { cuenta_id: pagoMetodo === "Banco" ? Number(pagoCuentaId) : null }
+    )
     setSavingPago(false)
     
     if (error) {
@@ -322,11 +459,12 @@ export default function CuentasPorCobrarPage() {
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="cartera" className="flex-1 sm:flex-none text-xs sm:text-sm">Cartera</TabsTrigger>
           <TabsTrigger value="historial" className="flex-1 sm:flex-none text-xs sm:text-sm">Historial Pagos</TabsTrigger>
+          <TabsTrigger value="recibos" className="flex-1 sm:flex-none text-xs sm:text-sm">Recibos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="cartera" className="space-y-4">
-          {/* Search */}
-          <div className="flex items-center gap-4">
+          {/* Search + recibo multi-factura */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="relative flex-1 md:max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -336,6 +474,9 @@ export default function CuentasPorCobrarPage() {
                 className="pl-10 text-sm"
               />
             </div>
+            <Button size="sm" onClick={() => openReciboDialog()} disabled={recibosPendiente || cuentas.length === 0} title={recibosPendiente ? RECIBOS_FEATURE_PENDING : "Un pago aplicado a varias facturas del cliente"}>
+              <Receipt className="h-4 w-4 mr-1" /> Recibo de cobro
+            </Button>
           </div>
 
           {/* Mobile Card View */}
@@ -511,7 +652,198 @@ export default function CuentasPorCobrarPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Recibos de cobro (script officemart-003) */}
+        <TabsContent value="recibos" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Recibos de cobro</CardTitle>
+              <CardDescription>Cada recibo es un solo movimiento de caja/banco aplicado a una o varias facturas.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {recibosPendiente ? (
+                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">{RECIBOS_FEATURE_PENDING}</p>
+              ) : recibos.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">Aún no hay recibos registrados</p>
+              ) : (
+                <Table containerClassName="max-h-[60vh] overflow-y-auto">
+                  <TableHeader sticky>
+                    <TableRow>
+                      <TableHead>Recibo</TableHead>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead>Facturas</TableHead>
+                      <TableHead>Método</TableHead>
+                      <TableHead className="text-right">Monto</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="w-12"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recibos.map((r) => (
+                      <TableRow key={r.id} className={r.anulado_at ? "opacity-60" : undefined}>
+                        <TableCell className="font-mono text-sm">{r.numero_recibo}</TableCell>
+                        <TableCell className="text-sm whitespace-nowrap">{r.fecha?.split("T")[0]}</TableCell>
+                        <TableCell className="text-sm">{r.cliente_nombre}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {(r.aplicaciones || []).map((a) => `${a.numero_factura || a.venta_id} (${formatCurrency(a.monto)})`).join(", ") || "—"}
+                        </TableCell>
+                        <TableCell className="text-sm">{r.metodo_pago}{r.referencia ? ` · ${r.referencia}` : ""}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(r.monto_total)}</TableCell>
+                        <TableCell>
+                          {r.anulado_at
+                            ? <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700" title={r.motivo_anulacion || ""}>Anulado</Badge>
+                            : <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Vigente</Badge>}
+                        </TableCell>
+                        <TableCell>
+                          {!r.anulado_at && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-600 hover:bg-red-50" title="Anular recibo" onClick={() => { setReciboAAnular(r); setMotivoAnularRecibo("") }}>
+                              <Ban className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* Recibo de cobro: un pago para varias facturas */}
+      <Dialog open={showReciboDialog} onOpenChange={setShowReciboDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Recibo de cobro</DialogTitle>
+            <DialogDescription>Aplica un solo pago a una o varias facturas con saldo del cliente.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Cliente</Label>
+                <Select value={reciboClienteId ? String(reciboClienteId) : "__none__"} onValueChange={(v) => { setReciboClienteId(v === "__none__" ? null : Number(v)); setReciboAplicaciones({}) }}>
+                  <SelectTrigger><SelectValue placeholder="Elige el cliente" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Elige el cliente</SelectItem>
+                    {clientesConSaldo.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.nombre} · debe {formatCurrency(c.saldo)} ({c.facturas})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Método</Label>
+                <Select value={reciboMetodo} onValueChange={(v) => { setReciboMetodo(v as "Efectivo" | "Banco" | "Otro"); if (v !== "Banco") setReciboCuentaId("") }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Efectivo">Efectivo (caja chica)</SelectItem>
+                    <SelectItem value="Banco">Banco / transferencia / tarjeta</SelectItem>
+                    <SelectItem value="Otro">Otro (sin asiento de tesorería)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {reciboMetodo === "Banco" && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>Cuenta destino</Label>
+                    <Select value={reciboCuentaId || "__none__"} onValueChange={(v) => setReciboCuentaId(v === "__none__" ? "" : v)}>
+                      <SelectTrigger><SelectValue placeholder="Elige la cuenta" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Elige la cuenta</SelectItem>
+                        {cuentasBanco.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nombre}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Referencia (nº transferencia / cheque)</Label>
+                    <Input value={reciboReferencia} onChange={(e) => setReciboReferencia(e.target.value)} placeholder="Opcional" />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {reciboClienteId && (
+              <>
+                <div className="flex items-end gap-2">
+                  <div className="space-y-1.5 flex-1">
+                    <Label>Monto recibido (L)</Label>
+                    <Input type="number" step="0.01" min="0" value={reciboMonto} onChange={(e) => setReciboMonto(e.target.value)} placeholder="0.00" />
+                  </div>
+                  <Button type="button" variant="outline" onClick={distribuirAutomatico} disabled={!(Number(reciboMonto) > 0)}>
+                    Distribuir (antiguas primero)
+                  </Button>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Factura</TableHead>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead className="text-right">Saldo</TableHead>
+                      <TableHead className="text-right w-40">Aplicar (L)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {facturasReciboCliente.map((f) => (
+                      <TableRow key={f.id}>
+                        <TableCell className="font-mono text-sm">{f.numero_factura}</TableCell>
+                        <TableCell className="text-sm">{f.fecha_venta?.split("T")[0]}</TableCell>
+                        <TableCell className="text-right text-sm">{formatCurrency(f.saldo_pendiente)}</TableCell>
+                        <TableCell className="text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max={f.saldo_pendiente}
+                            className="h-8 text-right"
+                            value={reciboAplicaciones[f.id] ?? ""}
+                            onChange={(e) => setReciboAplicaciones((prev) => ({ ...prev, [f.id]: e.target.value }))}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <div className="flex justify-between text-sm font-medium">
+                  <span>Total aplicado</span>
+                  <span>{formatCurrency(totalAplicado)}</span>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReciboDialog(false)}>Cancelar</Button>
+            <Button onClick={handleRegistrarRecibo} disabled={savingRecibo || totalAplicado <= 0}>
+              {savingRecibo && <Spinner className="mr-2 h-4 w-4" />}
+              Registrar recibo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Anular recibo */}
+      <Dialog open={reciboAAnular !== null} onOpenChange={(o) => { if (!o && !anulandoRecibo) setReciboAAnular(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Anular recibo {reciboAAnular?.numero_recibo}</DialogTitle>
+            <DialogDescription>
+              El dinero ({formatCurrency(reciboAAnular?.monto_total || 0)}) sale de tesorería y las facturas recuperan su saldo. El recibo queda como anulado.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label>Motivo</Label>
+            <Input value={motivoAnularRecibo} onChange={(e) => setMotivoAnularRecibo(e.target.value)} placeholder="Ej: pago aplicado a otro cliente" autoFocus />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReciboAAnular(null)} disabled={anulandoRecibo}>Cancelar</Button>
+            <Button onClick={handleAnularRecibo} disabled={anulandoRecibo || !motivoAnularRecibo.trim()} className="bg-red-600 hover:bg-red-700">
+              {anulandoRecibo && <Spinner className="mr-2 h-4 w-4" />}
+              Anular recibo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Payment Dialog */}
       <Dialog open={showPagoDialog} onOpenChange={setShowPagoDialog}>
@@ -565,17 +897,31 @@ export default function CuentasPorCobrarPage() {
             {/* Payment method */}
             <div className="space-y-2">
               <Label>Metodo de Pago</Label>
-              <Select value={pagoMetodo} onValueChange={setPagoMetodo}>
+              <Select value={pagoMetodo} onValueChange={(v) => { setPagoMetodo(v); if (v !== "Banco") setPagoCuentaId("") }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Efectivo">Efectivo</SelectItem>
-                  <SelectItem value="Transferencia">Transferencia</SelectItem>
-                  <SelectItem value="Tarjeta">Tarjeta</SelectItem>
+                  <SelectItem value="Efectivo">Efectivo (caja chica)</SelectItem>
+                  <SelectItem value="Banco">Banco / transferencia / tarjeta</SelectItem>
+                  <SelectItem value="Otro">Otro (sin asiento de tesorería)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {pagoMetodo === "Banco" && (
+              <div className="space-y-2">
+                <Label>Cuenta destino</Label>
+                <Select value={pagoCuentaId || "__none__"} onValueChange={(v) => setPagoCuentaId(v === "__none__" ? "" : v)}>
+                  <SelectTrigger><SelectValue placeholder="Elige la cuenta" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Elige la cuenta</SelectItem>
+                    {cuentasBanco.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPagoDialog(false)}>

@@ -4,6 +4,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
 import { getTenantStamp, isValidStamp } from "@/lib/services/tenant-stamp"
 import { getComisionesPeriodo } from "@/lib/services/ventas-analytics"
 import { getDevolucionesDelPeriodo } from "@/lib/services/devoluciones"
+import { ejecutarVigentes } from "@/lib/services/ventas-filtros"
 
 // ==================== TIPOS ====================
 
@@ -269,14 +270,17 @@ async function getEstadoResultadosCalculado(supabase: ReturnType<typeof createCl
   const tenantId = stamp.razon_social_id
 
   try {
-    // Get ventas del mes (filtradas por razon_social_id)
-    let ventasQuery = supabase
-      .from('ventas_encabezado')
-      .select('id, total_venta')
-      .gte('fecha_venta', primerDia)
-      .lte('fecha_venta', ultimoDia)
-    if (tenantId != null) ventasQuery = ventasQuery.eq('razon_social_id', tenantId)
-    const { data: ventasData } = await ventasQuery
+    // Get ventas VIGENTES del mes (filtradas por razon_social_id)
+    const { data: ventasData } = await ejecutarVigentes<{ id: number; total_venta: number }[] | null>((filtrar) => {
+      let ventasQuery = supabase
+        .from('ventas_encabezado')
+        .select('id, total_venta')
+        .gte('fecha_venta', primerDia)
+        .lte('fecha_venta', ultimoDia)
+      if (filtrar) ventasQuery = ventasQuery.is('anulada_at', null)
+      if (tenantId != null) ventasQuery = ventasQuery.eq('razon_social_id', tenantId)
+      return ventasQuery
+    })
 
     const ventasTotales = (ventasData || []).reduce((acc, v) => acc + (v.total_venta || 0), 0)
     const ventaIds = (ventasData || []).map(v => v.id)

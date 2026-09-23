@@ -46,6 +46,8 @@ import {
   Workflow,
   Receipt,
   UserCheck,
+  MessageSquareWarning,
+  ScrollText,
   type LucideIcon,
 } from "lucide-react"
 
@@ -77,11 +79,11 @@ export interface ModuloGranular {
 }
 
 /**
- * 46 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 48 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
- * "Vendedores y Zonas" y TODOS los de la categoria "Produccion" NO van en
- * MODULOS_BASE (nacen deshabilitados por empresa; el super-admin los habilita
- * desde /plataforma).
+ * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría" y TODOS los de la
+ * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
+ * empresa; el super-admin los habilita desde /plataforma).
  */
 export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // ── Dashboard ──────────────────────────────────────────────────────────
@@ -107,6 +109,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
     // el alias mantiene validos los permisos ya otorgados con ese nombre.
     aliases: ["Pedidos por Catalogo"],
   },
+  // NUEVO (no-base, officemart-003): reclamos del cliente sobre una factura,
+  // con resolución (anulación / devolución / sin cambio).
+  { nombre: "Reclamos de Ventas", href: "/ventas/reclamos", categoria: "Ventas", icon: MessageSquareWarning },
 
   // ── Compras ────────────────────────────────────────────────────────────
   { nombre: "Orden de Compra", href: "/compras/orden", categoria: "Compras", icon: FileText },
@@ -204,6 +209,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
     categoria: "Configuracion",
     icon: Receipt,
   },
+  // NUEVO (no-base, officemart-003): bitácora de acciones (ventas anuladas,
+  // recibos, devoluciones, reclamos...) consultable por el admin.
+  { nombre: "Auditoría", href: "/configuracion/auditoria", categoria: "Configuracion", icon: ScrollText },
 ] as const
 
 /**

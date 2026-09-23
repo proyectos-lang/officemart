@@ -2,6 +2,7 @@
 
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
 import { getTenantStamp, isValidStamp } from "@/lib/services/tenant-stamp"
+import { ejecutarVigentes } from "@/lib/services/ventas-filtros"
 
 /** Parte un arreglo en grupos de `size` (para no exceder el largo de URL en `.in()`). */
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -100,20 +101,21 @@ export async function getPagosResumen(
     // relacionadas con !inner no siempre se aplican correctamente desde el
     // cliente JS de Supabase.
 
-    // 1) Obtener los IDs de ventas del tenant en el periodo.
-    let encabQ = supabase
-      .from("ventas_encabezado")
-      .select("id")
-      .eq("razon_social_id", stamp.razon_social_id!)
-
-    if (start && end) {
-      encabQ = encabQ.gte("fecha_venta", start).lte("fecha_venta", end)
-    }
-
-    const { data: encabData, error: encabErr } = await encabQ
+    // 1) Obtener los IDs de ventas VIGENTES del tenant en el periodo.
+    const { data: encabData, error: encabErr } = await ejecutarVigentes<{ id: number }[] | null>((filtrar) => {
+      let encabQ = supabase
+        .from("ventas_encabezado")
+        .select("id")
+        .eq("razon_social_id", stamp.razon_social_id!)
+      if (filtrar) encabQ = encabQ.is("anulada_at", null)
+      if (start && end) {
+        encabQ = encabQ.gte("fecha_venta", start).lte("fecha_venta", end)
+      }
+      return encabQ
+    })
 
     if (encabErr) {
-      return { data: empty, error: encabErr.message }
+      return { data: empty, error: encabErr.message || "Error" }
     }
 
     const ventaIds = (encabData || []).map((r: { id: number }) => r.id)

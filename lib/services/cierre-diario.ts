@@ -19,6 +19,7 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
 import { getTenantStamp } from "@/lib/services/tenant-stamp"
 import { getHondurasDayRange } from "@/lib/utils/honduras-time"
+import { ejecutarVigentes } from "@/lib/services/ventas-filtros"
 
 // ==================== TIPOS ====================
 
@@ -361,12 +362,16 @@ export async function getCierreDiario(fechaISO: string): Promise<{
     // La vista es OPCIONAL (script 013). Si no existe, NO encendemos el
     // banner de migracion pendiente: el bloque siguiente recalcula todo
     // a mano leyendo directo de ventas_encabezado y ventas_pagos_detalle.
-    const { data: ventasData } = await supabase
-      .from("ventas_encabezado")
-      .select("id, total_venta")
-      .eq("razon_social_id", tenantId)
-      .gte("fecha_venta", start)
-      .lt("fecha_venta", end)
+    const { data: ventasData } = await ejecutarVigentes<{ id: number; total_venta: number }[] | null>((filtrar) => {
+      let q = supabase
+        .from("ventas_encabezado")
+        .select("id, total_venta")
+        .eq("razon_social_id", tenantId)
+        .gte("fecha_venta", start)
+        .lt("fecha_venta", end)
+      if (filtrar) q = q.is("anulada_at", null)
+      return q
+    })
 
     const ventas = ventasData || []
     resumen.cantidad_tickets = ventas.length
@@ -403,12 +408,16 @@ export async function getCierreDiario(fechaISO: string): Promise<{
   // Con un IN explicito sobre venta_id la query es trivial y siempre correcta.
   let ventaIdsDelDia: number[] = []
   {
-    const { data: encabData } = await supabase
-      .from("ventas_encabezado")
-      .select("id")
-      .eq("razon_social_id", tenantId)
-      .gte("fecha_venta", start)
-      .lt("fecha_venta", end)
+    const { data: encabData } = await ejecutarVigentes<{ id: number }[] | null>((filtrar) => {
+      let q = supabase
+        .from("ventas_encabezado")
+        .select("id")
+        .eq("razon_social_id", tenantId)
+        .gte("fecha_venta", start)
+        .lt("fecha_venta", end)
+      if (filtrar) q = q.is("anulada_at", null)
+      return q
+    })
     ventaIdsDelDia = (encabData || []).map((r: { id: number }) => r.id)
   }
 

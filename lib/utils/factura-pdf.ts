@@ -81,6 +81,9 @@ export interface FacturaPdfParams {
   fiscal?: FacturaPdfFiscal | null
   /** Nombre del archivo (sin extension se le agrega .pdf si falta). */
   filename?: string
+  /** Venta ANULADA (script officemart-003): sello rojo en el documento. */
+  anulada?: boolean
+  motivoAnulacion?: string | null
 }
 
 export async function generarFacturaPdf(
@@ -104,6 +107,8 @@ export async function generarFacturaPdf(
     reembolsoMetodo,
     motivo,
     fiscal,
+    anulada = false,
+    motivoAnulacion,
   } = params
   const esDevolucion = tipo === "devolucion"
   const esFiscal = !esDevolucion && !!fiscal
@@ -353,6 +358,19 @@ export async function generarFacturaPdf(
   } else {
     doc.text("Gracias por su compra. Este documento", 110, footerY + 8)
     doc.text("es valido como comprobante fiscal.", 110, footerY + 14)
+  }
+
+  // Sello de ANULADA (diagonal, rojo) sobre todo el documento.
+  if (anulada) {
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(60)
+    doc.setTextColor(220, 38, 38)
+    doc.text("ANULADA", pageWidth / 2, pageHeight / 2, { align: "center", angle: 30 })
+    if (motivoAnulacion) {
+      doc.setFontSize(10)
+      doc.text(`Motivo: ${motivoAnulacion}`, pageWidth / 2, pageHeight / 2 + 14, { align: "center", angle: 30 })
+    }
+    doc.setTextColor(30, 30, 30)
   }
 
   // Marca de agua

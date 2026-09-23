@@ -482,6 +482,20 @@ Línea de producto: clasificación transversal e independiente de la categoría 
 - `clientes`: `notas` (se muestra al elegir el cliente en Nueva Venta), `correo`, `dias_credito` (plazo de sus facturas; con facturas vencidas más allá del plazo, Nueva Venta bloquea el crédito — `bloqueoCreditoCliente` / `getFacturasVencidasCliente` en `lib/services/ventas.ts`), `cliente_relacionado_id` ("segundo cliente"), `bloqueado` + `motivo_bloqueo` (bloqueo manual de crédito), `zona_id`, `vendedor_id`.
 - `proveedores`: `correo, telefono, direccion, notas, moneda ('LPS'|'USD'), pais, dias_credito`. `rtn` pasa a ser opcional en la app (proveedor extranjero). Las dos interfaces `Proveedor` (`catalogos.ts` y `proveedores.ts`) quedaron unificadas en la de `catalogos.ts`.
 
+## Officemart — anulación, reclamos y recibos (script officemart-003)
+
+### Anulación de ventas ("compensar, no borrar")
+`ventas_encabezado` gana `anulada_at timestamptz` (NULL = vigente), `anulada_por`, `motivo_anulacion`, `anulacion_tipo` (`'Anulacion'|'Reclamo'`), `reclamo_id`. `anularVenta` (`lib/services/ventas.ts`) marca la fila (UPDATE idempotente `WHERE anulada_at IS NULL`) y registra **contra-asientos**: `ajustarStock(+cantidad)` + kardex `'Entrada Anulacion'` (`referencia_id` = venta, `referencia_tipo='anulacion_venta'`) y, si había dinero cobrado, `Salida` de caja o `Egreso` de cuenta con `ref_tipo='anulacion_venta'`. No toca detalle, pagos ni `valorpago`: la factura queda como foto histórica. Toda consulta que agrega ventas usa el filtro `anulada_at IS NULL` vía `ejecutarVigentes` (`lib/services/ventas-filtros.ts`, con reintento sin filtro si la columna no existe). `vista_cierre_diario` y `plataforma_resumen_empresas` se recrearon con el mismo filtro. El borrado físico (`eliminarVentaCompletamente`) y la edición quedan bloqueados si la venta está anulada, tiene abonos por recibo o asientos conciliados; el flag `ventas_permitir_eliminar` (default false) oculta "Eliminar" en el Historial.
+
+### `ventas_reclamos`
+`id, razon_social_id, venta_id, cliente_id, tipo ('Producto'|'Precio'|'Entrega'|'Otro'), descripcion, estado ('Abierto'|'Resuelto'|'Rechazado'), resolucion, resultado ('Anulacion'|'Devolucion'|'Sin cambio'), devolucion_id, resuelto_at, resuelto_por, usuario, created_at, updated_at`. RLS por tenant. Módulo "Reclamos de Ventas".
+
+### `recibos_cobro` + `pagos_ventas.recibo_id`
+Un recibo (`numero_recibo` RC-#### de la serie `RC`, `cliente_id, fecha, monto_total, metodo_pago, cuenta_id, referencia, concepto, anulado_at, motivo_anulacion`) cubre una o varias facturas: **un solo** movimiento de tesorería (`ref_tipo='recibo'`, `ref_id`=recibo) y un abono en `pagos_ventas` por factura con `recibo_id`. `registrarPago` (abono a una factura) es ahora un envoltorio de `registrarReciboCobro` con una aplicación (cae al flujo anterior si la tabla no existe). `anularReciboCobro` registra el contra-asiento (`ref_tipo='anulacion_recibo'`), borra sus abonos y reconstruye `valorpago`. Trigger `trg_tesoreria_recibo AFTER DELETE` (misma función del 039).
+
+### Devoluciones
+`devoluciones_encabezado` gana `numero_fiscal, cai_emitido, tipo_documento_fiscal, punto_facturacion_id, fiscal_snapshot` (nota de crédito CAI tipo `06`, emitida por `crearDevolucion` cuando la venta lleva número fiscal y la empresa tiene CAI activo) y `anulada_at, motivo_anulacion` (`anularDevolucion`: el stock devuelto vuelve a salir y el reembolso vuelve a entrar, `ref_tipo='anulacion_devolucion'`). El correlativo `DEV-` usa la serie `DEV` de `correlativos`.
+
 ---
 
 ## Storage

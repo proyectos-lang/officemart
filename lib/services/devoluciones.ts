@@ -5,6 +5,8 @@ import { registrarMovimientoCaja } from "@/lib/services/caja-chica"
 import { registrarMovimientoCuenta, recalcCadenaSaldoCuenta } from "@/lib/services/cuentas"
 import { getHondurasNowISO } from "@/lib/utils/honduras-time"
 import { emitirCorrelativo, SERIES } from "@/lib/services/correlativos"
+import { emitirCorrelativoCai } from "@/lib/services/facturacion-cai"
+import { registrarAuditoria } from "@/lib/services/auditoria"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 // ==================== TIPOS ====================
@@ -22,6 +24,13 @@ export interface CrearDevolucionInput {
   lineas: DevolucionLineaInput[]
   destino: { tipo: "caja" | "cuenta"; cuenta_id?: number | null }
   motivo?: string
+  /**
+   * Si la empresa tiene Facturación CAI activa y la venta lleva número fiscal,
+   * la devolución emite una NOTA DE CRÉDITO fiscal (tipo 06) con su propio
+   * correlativo CAI. Si la config 06 no está lista, la devolución se crea sin
+   * NC (degradado) y se avisa en consola.
+   */
+  emitirNotaCreditoFiscal?: boolean
 }
 
 export interface DevolucionEncabezado {
@@ -229,6 +238,21 @@ export async function crearDevolucion(
     .single()
   if (ventaErr || !venta) return { data: null, error: "La venta no existe o no pertenece a tu empresa" }
 
+  // 1b) Estado de anulación y datos fiscales (columnas de scripts posteriores;
+  //     best-effort: si no existen, se ignoran).
+  let ventaAnulada = false
+  let ventaNumeroFiscal: string | null = null
+  {
+    const { data: extra } = await supabase
+      .from("ventas_encabezado")
+      .select("anulada_at, numero_fiscal")
+      .eq("id", input.venta_id)
+      .maybeSingle()
+    ventaAnulada = !!extra?.anulada_at
+    ventaNumeroFiscal = (extra?.numero_fiscal as string | null) ?? null
+  }
+  if (ventaAnulada) return { data: null, error: "No se puede devolver una factura anulada" }
+
   // 2) Validar cantidades vs. vendido - ya devuelto.
   const { data: detallesVenta, error: detErr } = await supabase
     .from("ventas_detalle")
@@ -282,6 +306,22 @@ export async function crearDevolucion(
     return { data: null, error: encErr.message }
   }
   const devolucionId = enc.id as number
+
+  // 4b) Nota de crédito fiscal (CAI tipo 06) cuando la venta fue factura fiscal.
+  //     Degradado: si no hay config 06 / RPC / columnas, la devolución sigue
+  //     sin NC y se deja rastro en consola.
+  if (input.emitirNotaCreditoFiscal && ventaNumeroFiscal) {
+    const { data: nc, error: ncErr } = await emitirCorrelativoCai(supabase, "06")
+    if (nc) {
+      const { error: upErr } = await supabase
+        .from("devoluciones_encabezado")
+        .update({ numero_fiscal: nc.numero, cai_emitido: nc.cai, tipo_documento_fiscal: nc.tipo_documento })
+        .eq("id", devolucionId)
+      if (upErr) console.warn("[crearDevolucion] NC emitida pero no guardada (columnas officemart-003?):", upErr.message)
+    } else {
+      console.warn("[crearDevolucion] no se emitió nota de crédito fiscal:", ncErr)
+    }
+  }
 
   // 5) Insertar detalle.
   const detalleRows = lineas.map((l) => ({
@@ -424,12 +464,23 @@ export async function revertirDevolucionesDeVenta(
   ventaId: number,
   razonSocialId: number
 ): Promise<{ error: string | null }> {
-  // Devoluciones de la venta.
-  const { data: devs, error: devErr } = await supabase
+  // Devoluciones VIGENTES de la venta (las ya anuladas no tienen efectos que deshacer).
+  let { data: devs, error: devErr } = await supabase
     .from("devoluciones_encabezado")
     .select("id")
     .eq("venta_id", ventaId)
     .eq("razon_social_id", razonSocialId)
+    .is("anulada_at", null)
+  if (devErr && /anulada_at/i.test(devErr.message || "")) {
+    // Columna del script officemart-003 ausente: sin filtro.
+    const retry = await supabase
+      .from("devoluciones_encabezado")
+      .select("id")
+      .eq("venta_id", ventaId)
+      .eq("razon_social_id", razonSocialId)
+    devs = retry.data
+    devErr = retry.error
+  }
   if (devErr) {
     if (isMissingTable(devErr)) return { error: null } // sin feature = sin devoluciones
     return { error: devErr.message }
@@ -488,5 +539,102 @@ export async function revertirDevolucionesDeVenta(
   // Recalcular el saldo de las cuentas bancarias afectadas.
   for (const cId of cuentasAfectadas) await recalcCadenaSaldoCuenta(cId)
 
+  return { error: null }
+}
+
+// ==================== ANULAR UNA DEVOLUCIÓN (compensar, no borrar) ====================
+
+/**
+ * Anula una devolución conservando su registro: registra contra-asientos
+ * (el stock devuelto vuelve a salir; el dinero reembolsado vuelve a entrar) y
+ * marca `anulada_at`. Script officemart-003.
+ */
+export async function anularDevolucion(
+  devolucionId: number,
+  motivo: string
+): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured()) return { error: "Supabase no configurado" }
+  const supabase = createClient()
+  if (!supabase) return { error: "Cliente no disponible" }
+  const stamp = await getTenantStamp(supabase)
+  if (!isValidStamp(stamp)) return { error: SESION_INVALIDA_ERROR }
+  const tenantId = stamp.razon_social_id!
+  const motivoLimpio = (motivo || "").trim()
+  if (!motivoLimpio) return { error: "Indica el motivo de la anulación" }
+
+  const { data: dev, error: dErr } = await supabase
+    .from("devoluciones_encabezado")
+    .select("*")
+    .eq("id", devolucionId)
+    .eq("razon_social_id", tenantId)
+    .maybeSingle()
+  if (dErr || !dev) return { error: "La devolución no existe" }
+  if (dev.anulada_at) return { error: "La devolución ya está anulada" }
+
+  // Idempotencia: marcar primero (si otra sesión ya la anuló, no hay doble compensación).
+  const { data: marcada, error: mErr } = await supabase
+    .from("devoluciones_encabezado")
+    .update({ anulada_at: getHondurasNowISO(), motivo_anulacion: motivoLimpio })
+    .eq("id", devolucionId)
+    .is("anulada_at", null)
+    .select("id")
+  if (mErr) return { error: /anulada_at/i.test(mErr.message || "") ? "Anulación pendiente: aplica scripts/officemart-003." : mErr.message }
+  if (!marcada || marcada.length === 0) return { error: "La devolución ya está anulada" }
+
+  // 1) Inventario: el stock devuelto vuelve a salir (mismo almacén/localización).
+  const { data: detalles } = await supabase
+    .from("devoluciones_detalle")
+    .select("producto_id, cantidad_devuelta, costo_promedio_momento")
+    .eq("devolucion_id", devolucionId)
+    .eq("razon_social_id", tenantId)
+  const { data: entradas } = await supabase
+    .from("transacciones_inventario")
+    .select("producto_id, almacen_id, localizacion_id")
+    .eq("referencia_id", devolucionId)
+    .in("tipo_movimiento", [TIPO_MOV_DEVOLUCION, TIPO_MOV_FALLBACK])
+    .eq("razon_social_id", tenantId)
+  const ubicacion = new Map<number, { almacen_id: number; localizacion_id: number }>()
+  for (const e of entradas || []) if (!ubicacion.has(e.producto_id)) ubicacion.set(e.producto_id, { almacen_id: e.almacen_id, localizacion_id: e.localizacion_id })
+  for (const d of detalles || []) {
+    const cant = Number(d.cantidad_devuelta || 0)
+    if (cant <= 0) continue
+    await ajustarStock(supabase, d.producto_id, -cant, tenantId)
+    const u = ubicacion.get(d.producto_id)
+    if (u) {
+      const fila = {
+        producto_id: d.producto_id,
+        almacen_id: u.almacen_id,
+        localizacion_id: u.localizacion_id,
+        tipo_movimiento: "Salida Anulacion Devolucion",
+        cantidad: -cant,
+        costo_o_precio_unitario: Number(d.costo_promedio_momento || 0),
+        referencia_id: devolucionId,
+        referencia_tipo: "anulacion_devolucion",
+        fecha: getHondurasNowISO(),
+        ...stamp,
+      }
+      const { error: kErr } = await supabase.from("transacciones_inventario").insert(fila)
+      if (kErr) {
+        // CHECK del tipo o columna referencia_tipo ausente: reintento compatible.
+        const { referencia_tipo: _rt, ...sinRefTipo } = fila
+        await supabase.from("transacciones_inventario").insert({ ...sinRefTipo, tipo_movimiento: "Ajuste" })
+      }
+    }
+  }
+
+  // 2) Tesorería: el reembolso vuelve a entrar.
+  const concepto = `Anulación devolución ${dev.numero_devolucion || devolucionId}: ${motivoLimpio}`
+  const monto = Number(dev.monto_total || 0)
+  if (monto > 0) {
+    if (dev.destino_reembolso === "caja") {
+      const r = await registrarMovimientoCaja({ tipo: "Ingreso_Manual", monto, concepto, ref_tipo: "anulacion_devolucion", ref_id: devolucionId })
+      if (r.error) console.error("[anularDevolucion] contra-asiento caja falló:", r.error)
+    } else if (dev.cuenta_id) {
+      const r = await registrarMovimientoCuenta({ cuenta_id: Number(dev.cuenta_id), tipo: "Ingreso", monto, concepto, ref_tipo: "anulacion_devolucion", ref_id: devolucionId })
+      if (r.error) console.error("[anularDevolucion] contra-asiento cuenta falló:", r.error)
+    }
+  }
+
+  await registrarAuditoria(supabase, stamp, { entidad: "devolucion", entidad_id: devolucionId, accion: "anular", motivo: motivoLimpio, antes: dev })
   return { error: null }
 }

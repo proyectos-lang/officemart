@@ -3,6 +3,7 @@ import { getComisionesPorVenta } from '@/lib/services/ventas-analytics'
 import { getGastos, CATEGORIAS_MACRO } from '@/lib/services/gastos'
 import { getValoracionInventarioExtendida, getKardexByProducto } from '@/lib/services/inventario'
 import { getCompraById } from '@/lib/services/compras'
+import { filtrarVigentesActivo } from '@/lib/services/ventas-filtros'
 
 /**
  * Análisis Financiero: analítica de rentabilidad, gastos y costeo para el
@@ -93,16 +94,28 @@ async function fetchLineasRango(
     utilidad_linea?: number
     productos?: { nombre?: string; codigo_barras?: string } | null
   }>(() =>
-    supabase
-      .from('ventas_detalle')
-      .select(`
-        producto_id, cantidad, precio_unitario, costo_promedio_momento, utilidad_linea,
-        ventas_encabezado!inner ( fecha_venta ),
-        productos ( nombre, codigo_barras )
-      `)
-      .gte('ventas_encabezado.fecha_venta', `${desde}T00:00:00`)
-      .lte('ventas_encabezado.fecha_venta', `${hasta}T23:59:59`)
-      .order('producto_id', { ascending: true }) as unknown as Buildable
+    (filtrarVigentesActivo()
+      ? supabase
+          .from('ventas_detalle')
+          .select(`
+            producto_id, cantidad, precio_unitario, costo_promedio_momento, utilidad_linea,
+            ventas_encabezado!inner ( fecha_venta ),
+            productos ( nombre, codigo_barras )
+          `)
+          .is('ventas_encabezado.anulada_at', null)
+          .gte('ventas_encabezado.fecha_venta', `${desde}T00:00:00`)
+          .lte('ventas_encabezado.fecha_venta', `${hasta}T23:59:59`)
+          .order('producto_id', { ascending: true })
+      : supabase
+          .from('ventas_detalle')
+          .select(`
+            producto_id, cantidad, precio_unitario, costo_promedio_momento, utilidad_linea,
+            ventas_encabezado!inner ( fecha_venta ),
+            productos ( nombre, codigo_barras )
+          `)
+          .gte('ventas_encabezado.fecha_venta', `${desde}T00:00:00`)
+          .lte('ventas_encabezado.fecha_venta', `${hasta}T23:59:59`)
+          .order('producto_id', { ascending: true })) as unknown as Buildable
   )
   return rows.map((r) => ({
     producto_id: Number(r.producto_id) || 0,
@@ -121,12 +134,20 @@ async function fetchVentasRango(
   hasta: string
 ): Promise<{ id: number; total_venta: number }[]> {
   const rows = await fetchAll<{ id?: number; total_venta?: number }>(() =>
-    supabase
-      .from('ventas_encabezado')
-      .select('id, total_venta')
-      .gte('fecha_venta', `${desde}T00:00:00`)
-      .lte('fecha_venta', `${hasta}T23:59:59`)
-      .order('id', { ascending: true }) as unknown as Buildable
+    (filtrarVigentesActivo()
+      ? supabase
+          .from('ventas_encabezado')
+          .select('id, total_venta')
+          .is('anulada_at', null)
+          .gte('fecha_venta', `${desde}T00:00:00`)
+          .lte('fecha_venta', `${hasta}T23:59:59`)
+          .order('id', { ascending: true })
+      : supabase
+          .from('ventas_encabezado')
+          .select('id, total_venta')
+          .gte('fecha_venta', `${desde}T00:00:00`)
+          .lte('fecha_venta', `${hasta}T23:59:59`)
+          .order('id', { ascending: true })) as unknown as Buildable
   )
   return rows.map((r) => ({ id: Number(r.id) || 0, total_venta: Number(r.total_venta) || 0 }))
 }

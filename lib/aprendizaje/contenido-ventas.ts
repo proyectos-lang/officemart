@@ -175,7 +175,8 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
       "Registra abonos (parciales o totales) a facturas con saldo pendiente: el botón verde de pago aparece directo en la fila. El efectivo entra a la caja chica y los pagos por banco a la cuenta que elijas.",
       "Pestaña 'Detalle por Producto': todas las líneas vendidas con costo y utilidad, exportable a Excel.",
       "Importar ventas desde Excel: sube una plantilla (una línea por producto), el sistema agrupa por factura y crea cada venta con sus mismas transacciones (inventario, caja/banco). Cada factura puede traer su método de pago en la columna «Metodo de Pago» (Efectivo, Banco o Credito): las de crédito quedan como cuenta por cobrar.",
-      "Elimina una venta por completo: devuelve el stock, borra los movimientos de caja/banco asociados y elimina la factura. Pide un MOTIVO obligatorio y guarda una copia de la factura (con su detalle) en la pestaña 'Eliminadas' para trazabilidad. Si la factura tiene devoluciones, también se anulan automáticamente (se revierte su stock y su reembolso), avisándote antes.",
+      "ANULA una venta (botón rojo de prohibido) en vez de borrarla: la factura conserva su número y su detalle, pero deja de contar en reportes, cierre y cartera; los productos vuelven al inventario y, si había dinero cobrado, indicas de dónde sale el reembolso (caja chica o cuenta bancaria). Pide un MOTIVO obligatorio, queda en la bitácora de Auditoría y la factura se muestra tachada con la etiqueta ANULADA (oculta por defecto; actívala con el interruptor 'Mostrar anuladas'). Si la factura es fiscal (CAI) y el cliente ya se llevó el comprobante, lo correcto es una nota de crédito desde Devoluciones. No se puede anular una factura con devoluciones vigentes ni con abonos por recibo de cobro: anula primero esos documentos.",
+      "Eliminar (borrado físico, con copia en 'Eliminadas') solo aparece si el administrador de la plataforma lo permitió para tu empresa. Con facturación fiscal se recomienda solo anular.",
       "Pestaña 'Eliminadas': lista las facturas borradas con su número, cliente, total, quién y cuándo las eliminó y el motivo; puedes abrir el detalle (productos) de cada una.",
       "Edita una venta (botón lápiz): cambia cantidades, productos, cliente o método de pago; el cambio se propaga a inventario, caja chica, cuentas bancarias y cuentas por cobrar, conservando el número de factura.",
     ],
@@ -286,7 +287,7 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
           "Sí. En Resumen de Facturas cada fila tiene el ícono de impresora: reimprime la tirilla de 80 mm de esa venta con sus productos, pagos y saldo tal como quedaron guardados. Junto a él, el ícono de descarga regenera la factura A4 en PDF.",
       },
     ],
-    keywords: ["facturas", "consultar", "reimprimir", "tirilla", "termica", "80mm", "abono", "eliminar venta", "exportar", "excel", "historial"],
+    keywords: ["facturas", "consultar", "reimprimir", "tirilla", "termica", "80mm", "abono", "eliminar venta", "anular", "anulada", "anulacion", "motivo", "reembolso", "mostrar anuladas", "exportar", "excel", "historial"],
   },
   {
     modulo: "Catalogo",
@@ -377,6 +378,8 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
       "Reembolsa el dinero al destino que elijas: efectivo de caja chica o egreso de una cuenta bancaria.",
       "Pide confirmación con un resumen (productos, cantidades, monto, destino) antes de ejecutar.",
       "Genera un correlativo DEV-0001, guarda el motivo, y mantiene un historial exportable a Excel.",
+      "Si tu empresa tiene Facturación CAI activa y la factura original lleva número fiscal, la devolución emite además una NOTA DE CRÉDITO fiscal (tipo 06) con su propio correlativo del SAR (requiere configurar el CAI de Nota de Crédito en Configuración → Facturación CAI).",
+      "No se puede devolver una factura anulada. Una devolución registrada se puede anular (queda marcada, el stock devuelto vuelve a salir y el reembolso vuelve a entrar).",
       "Al procesar la devolución abre un diálogo para imprimir su comprobante: tirilla térmica (80 mm) o factura de devolución en PDF (mismo formato que la factura normal), con los datos de la factura original y los productos específicos devueltos. Desde el Historial puedes volver a imprimir cualquiera de los dos.",
       "El Estado de Resultados descuenta automáticamente las devoluciones (ventas netas).",
     ],
@@ -436,6 +439,43 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
       "devolver", "reembolso", "nota de credito", "cambio", "producto defectuoso",
       "regresar", "reversar", "dev",
       "factura de devolucion", "imprimir devolucion", "pdf devolucion", "comprobante devolucion",
+      "nota de credito fiscal", "cai 06", "anular devolucion",
     ],
+  },
+  {
+    modulo: "Reclamos de Ventas",
+    titulo: "Reclamos de Ventas",
+    descripcion:
+      "Registrar los reclamos del cliente sobre una factura (producto, precio, entrega u otro) y documentar cómo se resolvieron.",
+    queHace: [
+      "Registra un reclamo sobre una factura vigente: tipo (Producto, Precio, Entrega, Otro) y descripción. Queda 'Abierto' con fecha y quién lo registró.",
+      "Resuelve el reclamo con una decisión (procede / no procede), lo acordado con el cliente y qué se hizo: sin cambio, devolución/nota de crédito o anulación de la factura.",
+      "La devolución o la anulación en sí se ejecutan desde Ventas → Devoluciones o desde el Historial (botón Anular); el reclamo solo las documenta.",
+      "Lista los reclamos abiertos, resueltos y rechazados, con búsqueda por factura o cliente; un reclamo cerrado se puede reabrir.",
+      "Cada registro y resolución queda en la bitácora de Auditoría.",
+    ],
+    queNoHace: [
+      "No mueve inventario ni dinero: eso lo hacen Devoluciones y la anulación de la factura.",
+      "No aparece si el administrador de la plataforma no habilitó el módulo para tu empresa.",
+    ],
+    operaciones: [
+      {
+        titulo: "Registrar y resolver un reclamo",
+        pasos: [
+          "Abre Ventas → Reclamos de Ventas y presiona Nuevo Reclamo.",
+          "Busca la factura (por número o cliente), elige el tipo y describe el reclamo. Guarda.",
+          "Cuando tengas la respuesta, presiona Resolver: indica si procede, qué se hizo (sin cambio / devolución / anulación) y escribe la resolución.",
+          "Si procede una devolución, regístrala en Ventas → Devoluciones; si procede anular, hazlo desde el Historial con el botón Anular.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        pregunta: "¿El reclamo devuelve el dinero al cliente?",
+        respuesta:
+          "No por sí solo. El reclamo documenta la queja y la decisión; el dinero y el inventario se mueven al registrar la devolución (nota de crédito) o al anular la factura, que son las acciones que quedan enlazadas al reclamo.",
+      },
+    ],
+    keywords: ["reclamo", "reclamos", "queja", "garantia", "resolucion", "procede", "no procede", "seguimiento", "cliente insatisfecho"],
   },
 ]

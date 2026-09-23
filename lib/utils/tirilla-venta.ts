@@ -89,6 +89,9 @@ export interface TirillaVenta {
   vuelto?: number | null
   /** Si es true, imprime el codigo de cada producto bajo su nombre. */
   mostrarCodigoProducto?: boolean
+  /** Venta ANULADA (script officemart-003): se reimprime con la leyenda. */
+  anulada?: boolean
+  motivoAnulacion?: string | null
 }
 
 /** Escapa `< > &` para no romper el HTML con nombres/direcciones del usuario. */
@@ -189,7 +192,12 @@ export function buildTirillaVentaHtml(v: TirillaVenta): string {
   // Encabezado fiscal (CAI): reemplaza la linea "Factura: <numero>" cuando la
   // venta es comprobante SAR. Muestra CAI, correlativo fiscal, rango, fecha
   // limite y destino de los ejemplares (Original: Cliente).
-  const encabezadoHtml = f
+  const anuladaHtml = v.anulada
+    ? `<div class="center bold" style="font-size:14px;border:2px solid #000;padding:3px;margin:4px 0;">*** ANULADA ***</div>` +
+      (v.motivoAnulacion ? `<div class="center" style="font-size:10px;">${esc(v.motivoAnulacion)}</div>` : "")
+    : ""
+
+  const encabezadoHtml = anuladaHtml + (f
     ? `<div class="center bold" style="font-size:13px;">FACTURA</div>
   <div class="meta"><b>CAI:</b> <span class="mono">${esc(f.cai)}</span></div>
   <div class="meta"><b>No.:</b> <span class="mono">${esc(f.numeroFiscal)}</span></div>
@@ -198,7 +206,7 @@ export function buildTirillaVentaHtml(v: TirillaVenta): string {
   <div class="meta"><b>Fecha:</b> ${esc(fmtFechaHora(v.fechaISO))}</div>
   <div class="meta">Original: Cliente</div>`
     : `<div class="meta"><b>Factura:</b> ${esc(v.numeroFactura)}</div>
-  <div class="meta"><b>Fecha:</b> ${esc(fmtFechaHora(v.fechaISO))}</div>`
+  <div class="meta"><b>Fecha:</b> ${esc(fmtFechaHora(v.fechaISO))}</div>`)
 
   // Cliente + RTN (o "CONSUMIDOR FINAL") en modo fiscal.
   const clienteHtml = f

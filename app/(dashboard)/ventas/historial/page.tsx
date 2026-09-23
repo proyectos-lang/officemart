@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Eye, CreditCard, Download, FileSpreadsheet, CalendarIcon, Banknote, Wallet, Shuffle, Trash2, Loader2, Pencil, Printer } from "lucide-react"
+import { Eye, CreditCard, Download, FileSpreadsheet, CalendarIcon, Banknote, Wallet, Shuffle, Trash2, Loader2, Pencil, Printer, Ban } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import { exportToXlsx } from "@/lib/utils/export"
 import { formatCurrency, formatNumber } from "@/lib/utils/format"
 import { TablePaginator } from "@/components/ui/table-paginator"
@@ -60,6 +61,7 @@ import {
   getPagosDetalleVenta,
   registrarPago,
   eliminarVentaCompletamente,
+  anularVenta,
   getRazonSocialForPdf,
   getDetalleAnalitico,
   getVentasEliminadas,
@@ -183,6 +185,16 @@ export default function HistorialVentasPage() {
   const [motivoEliminar, setMotivoEliminar] = React.useState("")
   const [deletingVenta, setDeletingVenta] = React.useState(false)
 
+  // --- Anular venta (script officemart-003: "compensar, no borrar") ---
+  // Borrar físicamente solo si la empresa lo permite (flag); por defecto se ANULA.
+  const permitirEliminar = user?.flags?.ventas_permitir_eliminar ?? false
+  const [mostrarAnuladas, setMostrarAnuladas] = React.useState(false)
+  const [ventaAAnular, setVentaAAnular] = React.useState<VentaEncabezado | null>(null)
+  const [motivoAnular, setMotivoAnular] = React.useState("")
+  const [reembolsoDestino, setReembolsoDestino] = React.useState<"caja" | "cuenta">("caja")
+  const [reembolsoCuentaId, setReembolsoCuentaId] = React.useState("")
+  const [anulando, setAnulando] = React.useState(false)
+
   React.useEffect(() => {
     loadData()
   }, [])
@@ -288,6 +300,8 @@ export default function HistorialVentasPage() {
     const almacenSeleccionado = almacenes.find(a => a.id?.toString() === filtroAlmacenIdFacturas)?.nombre || ""
 
     return ventas.filter(v => {
+      // Anuladas ocultas por defecto (se muestran con el interruptor).
+      if (!mostrarAnuladas && v.anulada_at) return false
       const fecha = v.fecha_venta?.split('T')[0] || ""
       const matchInicio = !filtroFechaInicioFacturas || fecha >= filtroFechaInicioFacturas
       const matchFin = !filtroFechaFinFacturas || fecha <= filtroFechaFinFacturas
@@ -296,7 +310,7 @@ export default function HistorialVentasPage() {
       const matchEstado = !filtroEstadoPago || v.estado_pago === filtroEstadoPago
       return matchInicio && matchFin && matchCliente && matchAlmacen && matchEstado
     })
-  }, [ventas, filtroFechaInicioFacturas, filtroFechaFinFacturas, filtroClienteIdFacturas, filtroAlmacenIdFacturas, filtroEstadoPago, clientes, almacenes])
+  }, [ventas, filtroFechaInicioFacturas, filtroFechaFinFacturas, filtroClienteIdFacturas, filtroAlmacenIdFacturas, filtroEstadoPago, clientes, almacenes, mostrarAnuladas])
 
   // --- Filtered detalle analitico ---
   const detalleFiltrado = React.useMemo(() => {
@@ -503,6 +517,41 @@ export default function HistorialVentasPage() {
     }
   }
 
+  async function handleAnularVenta() {
+    if (!ventaAAnular?.id) return
+    if (!motivoAnular.trim()) {
+      toast({ title: "Falta el motivo", description: "Indica por qué anulas esta factura.", variant: "destructive" })
+      return
+    }
+    const pagado = Number(ventaAAnular.valorpago || 0)
+    if (pagado > 0.005 && reembolsoDestino === "cuenta" && !reembolsoCuentaId) {
+      toast({ title: "Falta la cuenta", description: "Elige la cuenta bancaria del reembolso.", variant: "destructive" })
+      return
+    }
+    setAnulando(true)
+    try {
+      const { error } = await anularVenta(ventaAAnular.id, {
+        motivo: motivoAnular.trim(),
+        reembolso: pagado > 0.005
+          ? { destino: reembolsoDestino, cuenta_id: reembolsoDestino === "cuenta" ? Number(reembolsoCuentaId) : null }
+          : null,
+      })
+      if (error) {
+        toast({ title: "No se pudo anular", description: error, variant: "destructive" })
+        return
+      }
+      toast({
+        title: "Venta anulada",
+        description: "La factura conserva su número; el inventario y el dinero se compensaron.",
+      })
+      setVentaAAnular(null)
+      setMotivoAnular("")
+      loadData()
+    } finally {
+      setAnulando(false)
+    }
+  }
+
   // Al abrir el diálogo de eliminar, cuenta las devoluciones para avisar que
   // se anularán junto con la venta.
   React.useEffect(() => {
@@ -617,6 +666,13 @@ export default function HistorialVentasPage() {
     doc.setTextColor(30, 30, 30); doc.text(razonSocial?.documento || "N/A", 80, cy + 4)
     doc.setFontSize(28); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 30, 30)
     doc.text("FACTURA", pageWidth - 20, 28, { align: "right" })
+    if (venta.anulada_at) {
+      // Sello rojo diagonal (script officemart-003).
+      doc.setFontSize(60)
+      doc.setTextColor(220, 38, 38)
+      doc.text("ANULADA", pageWidth / 2, pageHeight / 2, { align: "center", angle: 30 })
+      doc.setTextColor(30, 30, 30)
+    }
     doc.setFontSize(12); doc.setFont("helvetica", "normal")
     doc.text(`#${venta.numero_factura}`, pageWidth - 20, 38, { align: "right" })
     const cY = 85
@@ -784,6 +840,8 @@ export default function HistorialVentasPage() {
         valorPagado,
         saldo: Math.max(0, +(((venta.total_venta ?? 0) - valorPagado)).toFixed(2)),
         mostrarCodigoProducto: user?.flags?.tirilla_mostrar_codigo ?? false,
+        anulada: !!venta.anulada_at,
+        motivoAnulacion: venta.motivo_anulacion ?? null,
       }
 
       printTirilla(buildTirillaVentaHtml(tirilla), { widthMm: 80 })
@@ -1017,6 +1075,12 @@ export default function HistorialVentasPage() {
                   </Select>
                 </div>
 
+                {/* Anuladas (script officemart-003) */}
+                <div className="flex items-center gap-2 self-end pb-2">
+                  <Switch id="mostrar-anuladas" checked={mostrarAnuladas} onCheckedChange={setMostrarAnuladas} />
+                  <Label htmlFor="mostrar-anuladas" className="text-xs text-stone-600">Mostrar anuladas</Label>
+                </div>
+
                 {/* Limpiar */}
                 <Button
                   variant="outline"
@@ -1027,6 +1091,7 @@ export default function HistorialVentasPage() {
                     setFiltroClienteIdFacturas("")
                     setFiltroAlmacenIdFacturas("")
                     setFiltroEstadoPago("")
+                    setMostrarAnuladas(false)
                   }}
                 >
                   Limpiar Filtros
@@ -1082,9 +1147,17 @@ export default function HistorialVentasPage() {
                     const comisionVenta = venta.id != null ? comisionesPorVenta.get(venta.id) : undefined
                     const comisionVal = comisionVenta?.comision ?? 0
                     const subtotalVal = (venta.total_venta ?? 0) - comisionVal
+                    const anulada = !!venta.anulada_at
                     return (
-                      <TableRow key={venta.id} className="hover:bg-stone-50/50">
-                        <TableCell className="font-mono font-medium whitespace-nowrap">{venta.numero_factura}</TableCell>
+                      <TableRow key={venta.id} className={anulada ? "bg-red-50/40 text-stone-400 hover:bg-red-50/60" : "hover:bg-stone-50/50"}>
+                        <TableCell className="font-mono font-medium whitespace-nowrap">
+                          <span className={anulada ? "line-through" : ""}>{venta.numero_factura}</span>
+                          {anulada && (
+                            <Badge variant="outline" className="ml-2 border-red-200 bg-red-50 text-red-700 align-middle" title={venta.motivo_anulacion || "Anulada"}>
+                              ANULADA
+                            </Badge>
+                          )}
+                        </TableCell>
                         <TableCell className="whitespace-nowrap">{venta.fecha_venta?.split('T')[0] || ''}</TableCell>
                         <TableCell className="whitespace-nowrap">{venta.cliente_nombre}</TableCell>
                         {mostrarVendedor && (
@@ -1117,7 +1190,7 @@ export default function HistorialVentasPage() {
                         <TableCell>{getMetodoPagoBadge(venta.id)}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            {saldo > 0.005 && (
+                            {saldo > 0.005 && !anulada && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1147,24 +1220,44 @@ export default function HistorialVentasPage() {
                                 <Printer className="h-4 w-4" />
                               )}
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-sky-600 hover:text-sky-700 hover:bg-sky-50"
-                              onClick={() => router.push(`/ventas/editar/${venta.id}`)}
-                              title="Editar venta"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => setVentaAEliminar(venta)}
-                              title="Eliminar venta"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {!anulada && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-sky-600 hover:text-sky-700 hover:bg-sky-50"
+                                onClick={() => router.push(`/ventas/editar/${venta.id}`)}
+                                title="Editar venta"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {!anulada && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setVentaAAnular(venta)
+                                  setMotivoAnular("")
+                                  setReembolsoDestino("caja")
+                                  setReembolsoCuentaId("")
+                                }}
+                                title="Anular venta (conserva el documento)"
+                              >
+                                <Ban className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {!anulada && permitirEliminar && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => setVentaAEliminar(venta)}
+                                title="Eliminar venta (borrado físico)"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1752,6 +1845,86 @@ export default function HistorialVentasPage() {
       </Dialog>
 
       {/* Confirmacion de eliminacion de venta */}
+      {/* Anular venta (conserva el documento; registra contra-asientos) */}
+      <Dialog
+        open={ventaAAnular !== null}
+        onOpenChange={(open) => { if (!open && !anulando) setVentaAAnular(null) }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Ban className="h-5 w-5" />
+              {ventaAAnular ? `Anular venta ${ventaAAnular.numero_factura}` : "Anular venta"}
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  La factura conserva su número y su detalle, pero deja de contar en reportes y cartera.
+                  Los productos vuelven al inventario y, si hubo dinero cobrado, se registra su salida.
+                </p>
+                {ventaAAnular?.numero_fiscal && (
+                  <p className="rounded-md bg-amber-50 border border-amber-200 p-2 text-amber-800 text-sm">
+                    Factura fiscal <span className="font-mono">{ventaAAnular.numero_fiscal}</span>: si el cliente ya se llevó el
+                    comprobante, lo correcto ante el SAR es una <strong>nota de crédito</strong> (Devoluciones) y no una anulación.
+                  </p>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="motivo-anular" className="text-xs">Motivo de la anulación <span className="text-red-600">*</span></Label>
+              <Input
+                id="motivo-anular"
+                value={motivoAnular}
+                onChange={(e) => setMotivoAnular(e.target.value)}
+                placeholder="Ej: factura duplicada, error de digitación…"
+                disabled={anulando}
+                autoFocus
+              />
+            </div>
+            {Number(ventaAAnular?.valorpago || 0) > 0.005 && (
+              <div className="grid gap-1.5 rounded-lg border border-stone-200 p-3">
+                <p className="text-xs text-stone-600">
+                  Esta factura tiene <strong>{formatCurrency(Number(ventaAAnular?.valorpago || 0))}</strong> cobrados. ¿De dónde sale el reembolso?
+                </p>
+                <Select value={reembolsoDestino} onValueChange={(v) => setReembolsoDestino(v as "caja" | "cuenta")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="caja">Caja chica (efectivo)</SelectItem>
+                    <SelectItem value="cuenta">Cuenta bancaria</SelectItem>
+                  </SelectContent>
+                </Select>
+                {reembolsoDestino === "cuenta" && (
+                  <Select value={reembolsoCuentaId || "__none__"} onValueChange={(v) => setReembolsoCuentaId(v === "__none__" ? "" : v)}>
+                    <SelectTrigger><SelectValue placeholder="Elige la cuenta" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Elige la cuenta</SelectItem>
+                      {cuentas.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>{c.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {reembolsoDestino === "caja" && !cajaSesion && (
+                  <p className="text-[11px] text-amber-700">No hay caja abierta: abre la caja chica o elige una cuenta bancaria.</p>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVentaAAnular(null)} disabled={anulando}>Cancelar</Button>
+            <Button
+              onClick={handleAnularVenta}
+              disabled={anulando || !motivoAnular.trim()}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {anulando ? <><Loader2 className="h-4 w-4 animate-spin" /> Anulando…</> : <><Ban className="h-4 w-4" /> Anular venta</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog
         open={ventaAEliminar !== null}
         onOpenChange={(open) => {

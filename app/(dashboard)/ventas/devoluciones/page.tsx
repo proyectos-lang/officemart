@@ -188,6 +188,8 @@ export default function DevolucionesPage() {
         })),
       destino: { tipo: destinoTipo, cuenta_id: destinoTipo === "cuenta" ? Number(cuentaId) : null },
       motivo: motivo || undefined,
+      // Con Facturación CAI activa, la devolución emite nota de crédito fiscal (06).
+      emitirNotaCreditoFiscal: user?.flags?.facturacion_cai ?? false,
     })
     setSaving(false)
     setConfirmOpen(false)

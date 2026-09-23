@@ -457,6 +457,41 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
     keywords: ["vendedor", "vendedores", "zona", "zonas", "ruta", "cartera", "comision", "usuario vinculado", "preseleccionar vendedor", "vendedor obligatorio"],
   },
   {
+    modulo: "Auditoría",
+    titulo: "Auditoría (bitácora)",
+    descripcion:
+      "La bitácora de acciones sensibles de la empresa: quién anuló una factura, registró o anuló un recibo, resolvió un reclamo, anuló una devolución, y con qué motivo.",
+    queHace: [
+      "Lista cada acción con fecha y hora, usuario, entidad (venta, recibo, devolución, reclamo…), acción (anular, crear, resolver…) y motivo.",
+      "Filtra por entidad, usuario, rango de fechas y texto (motivo, número de factura).",
+      "Muestra el detalle de cada registro: el estado 'antes' y 'después' cuando aplica (por ejemplo, totales y estado de pago de la factura anulada).",
+      "Exporta la bitácora filtrada a Excel.",
+      "Solo la consulta el administrador de la empresa. Nadie puede editar ni borrar la bitácora desde la app.",
+    ],
+    queNoHace: [
+      "No registra cada lectura de pantalla ni cada venta normal: registra las acciones que cambian o anulan documentos (ventas anuladas, recibos, devoluciones anuladas, reclamos, ediciones).",
+      "No aparece si el administrador de la plataforma no habilitó el módulo para tu empresa.",
+    ],
+    operaciones: [
+      {
+        titulo: "Revisar quién anuló una factura",
+        pasos: [
+          "Abre Configuración → Auditoría.",
+          "Filtra por entidad 'Ventas' y, si quieres, por usuario o fechas.",
+          "Busca el número de factura en el cuadro de texto; abre el ojo para ver el detalle (totales, estado de pago, motivo).",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        pregunta: "¿Se puede borrar un registro de la bitácora?",
+        respuesta:
+          "No. La bitácora solo permite leer y agregar; ni el administrador puede editarla o borrarla desde el sistema.",
+      },
+    ],
+    keywords: ["auditoria", "bitacora", "log", "quien", "trazabilidad", "historial de acciones", "anulaciones", "usuario"],
+  },
+  {
     modulo: "Cuentas Bancarias",
     titulo: "Cuentas Bancarias",
     descripcion:

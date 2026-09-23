@@ -55,6 +55,13 @@ export interface FeatureFlags {
    * preselecciona el del usuario o el del cliente cuando existe). Default false.
    */
   ventas_vendedor_obligatorio: boolean
+  /**
+   * Si es true, el Historial sigue ofreciendo "Eliminar venta" (borrado físico
+   * con copia en 'Eliminadas'). Si es false (default en Officemart), solo se
+   * puede ANULAR: la factura conserva su número y sus asientos, y la anulación
+   * registra contra-asientos (requisito de facturación CAI).
+   */
+  ventas_permitir_eliminar: boolean
 }
 
 export const DEFAULT_FLAGS: FeatureFlags = {
@@ -67,6 +74,7 @@ export const DEFAULT_FLAGS: FeatureFlags = {
   ventas_bloquear_precio_descuento: false,
   caja_ocultar_saldo: false,
   ventas_vendedor_obligatorio: false,
+  ventas_permitir_eliminar: false,
 }
 
 /** Etiquetas legibles para el portal (que flags se pueden togglear por empresa). */
@@ -80,6 +88,7 @@ export const FLAG_LABELS: Record<keyof FeatureFlags, string> = {
   ventas_bloquear_precio_descuento: "Bloquear precio y descuento en ventas (excepto admin)",
   caja_ocultar_saldo: "Ocultar saldo de caja chica (excepto admin)",
   ventas_vendedor_obligatorio: "Vendedor obligatorio en Nueva Venta",
+  ventas_permitir_eliminar: "Permitir borrar ventas (además de anular)",
 }
 
 /**
@@ -125,5 +134,9 @@ export function mergeFlags(config: Record<string, unknown> | null | undefined): 
       c.ventas_vendedor_obligatorio === undefined
         ? DEFAULT_FLAGS.ventas_vendedor_obligatorio
         : Boolean(c.ventas_vendedor_obligatorio),
+    ventas_permitir_eliminar:
+      c.ventas_permitir_eliminar === undefined
+        ? DEFAULT_FLAGS.ventas_permitir_eliminar
+        : Boolean(c.ventas_permitir_eliminar),
   }
 }

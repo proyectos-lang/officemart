@@ -2,6 +2,7 @@ import type { SupabaseClient, PostgrestError } from '@supabase/supabase-js'
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from '@/lib/services/tenant-stamp'
 import { fijarCostoPromedio } from '@/lib/services/stock'
+import { ejecutarVigentes } from '@/lib/services/ventas-filtros'
 
 /**
  * Ajuste manual de costo unitario (`productos.costo_promedio`) con recalculo
@@ -105,12 +106,16 @@ async function resolverAfectados(
   const inicio = `${desde}T00:00:00`
   const fin = `${hasta}T23:59:59`
 
-  // Ventas del rango.
-  const { data: ventas } = await supabase
-    .from('ventas_encabezado')
-    .select('id')
-    .gte('fecha_venta', inicio)
-    .lte('fecha_venta', fin)
+  // Ventas VIGENTES del rango (las anuladas no recalculan su costo).
+  const { data: ventas } = await ejecutarVigentes<{ id: number }[] | null>((filtrar) => {
+    let q = supabase
+      .from('ventas_encabezado')
+      .select('id')
+      .gte('fecha_venta', inicio)
+      .lte('fecha_venta', fin)
+    if (filtrar) q = q.is('anulada_at', null)
+    return q
+  })
   const ventaIds = (ventas || []).map((v) => v.id as number)
 
   let ventasAfectadas = 0

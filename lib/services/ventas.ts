@@ -6,6 +6,9 @@ import { ajustarStock } from '@/lib/services/stock'
 import { getHondurasNowISO } from '@/lib/utils/honduras-time'
 import { revertirDevolucionesDeVenta } from '@/lib/services/devoluciones'
 import { emitirCorrelativoCai } from '@/lib/services/facturacion-cai'
+import { ejecutarVigentes, esVentaVigente, filtrarVigentesActivo } from '@/lib/services/ventas-filtros'
+import { registrarReciboCobro, RECIBOS_FEATURE_PENDING } from '@/lib/services/recibos'
+import { registrarAuditoria } from '@/lib/services/auditoria'
 
 /**
  * True SOLO si el error es "la relacion/tabla no existe" (migracion pendiente):
@@ -83,6 +86,16 @@ export interface VentaEncabezado {
    * NULL si la empresa no usa vendedores. Alimenta comisiones y reportes.
    */
   vendedor_id?: number | null
+  /**
+   * Anulación (script officemart-003). NULL = venta vigente. Una venta anulada
+   * conserva sus filas y asientos; la anulación registró contra-asientos.
+   */
+  anulada_at?: string | null
+  anulada_por?: string | null
+  motivo_anulacion?: string | null
+  /** 'Anulacion' | 'Reclamo' */
+  anulacion_tipo?: string | null
+  reclamo_id?: number | null
 }
 
 export interface VentaDetalle {
@@ -216,11 +229,12 @@ async function emitirCorrelativoVenta(
  * la pagina pedida junto con `total` (conteo exacto) para saber si hay mas.
  */
 export async function getVentas(
-  opts: { limit?: number; offset?: number } = {}
+  opts: { limit?: number; offset?: number; soloVigentes?: boolean } = {}
 ): Promise<{ data: VentaEncabezado[]; total: number; error: string | null }> {
   if (!isSupabaseConfigured()) {
     const saved = localStorage.getItem('ventas_encabezado')
-    const todas: VentaEncabezado[] = saved ? JSON.parse(saved) : []
+    let todas: VentaEncabezado[] = saved ? JSON.parse(saved) : []
+    if (opts.soloVigentes) todas = todas.filter(esVentaVigente)
     return { data: todas, total: todas.length, error: null }
   }
 
@@ -242,22 +256,36 @@ export async function getVentas(
     // filas via bucle por rangos (para superar el tope de 1000 de PostgREST).
     if (opts.limit != null) {
       const desde = opts.offset ?? 0
-      const { data, count, error } = await supabase
-        .from('ventas_encabezado')
-        .select(`*, clientes (nombre), almacenes (nombre)`, { count: 'exact' })
-        .order('id', { ascending: false })
-        .range(desde, desde + opts.limit - 1)
-      if (error) return { data: [], total: 0, error: error.message }
+      const { data, count, error } = await ejecutarVigentes<EncabezadoRow[] | null>((filtrar) => {
+        let q = supabase
+          .from('ventas_encabezado')
+          .select(`*, clientes (nombre), almacenes (nombre)`, { count: 'exact' })
+        if (filtrar && opts.soloVigentes) q = q.is('anulada_at', null)
+        return q.order('id', { ascending: false }).range(desde, desde + opts.limit! - 1)
+      }) as { data: EncabezadoRow[] | null; count?: number | null; error: { message?: string } | null }
+      if (error) return { data: [], total: 0, error: error.message || 'Error' }
       const formattedData = ((data || []) as EncabezadoRow[]).map(mapRow)
       return { data: formattedData, total: count ?? formattedData.length, error: null }
     }
 
-    const { data, error } = await fetchAllRows<EncabezadoRow>(() =>
-      supabase
+    let { data, error } = await fetchAllRows<EncabezadoRow>(() => {
+      let q = supabase
         .from('ventas_encabezado')
         .select(`*, clientes (nombre), almacenes (nombre)`)
-        .order('id', { ascending: false })
-    )
+      if (opts.soloVigentes) q = q.is('anulada_at', null)
+      return q.order('id', { ascending: false })
+    })
+    // Columna anulada_at ausente (script officemart-003 pendiente): sin filtro.
+    if (error && opts.soloVigentes && /anulada_at/i.test(error)) {
+      const retry = await fetchAllRows<EncabezadoRow>(() =>
+        supabase
+          .from('ventas_encabezado')
+          .select(`*, clientes (nombre), almacenes (nombre)`)
+          .order('id', { ascending: false })
+      )
+      data = retry.data
+      error = retry.error
+    }
     if (error) return { data: [], total: 0, error }
     const formattedData = data.map(mapRow)
     return { data: formattedData, total: formattedData.length, error: null }
@@ -299,19 +327,21 @@ export async function getVentasResumenTotales(filtros: {
     // --- Total BRUTO desde las lineas (join !inner al encabezado para filtrar
     //     por los mismos criterios del Resumen). Misma formula que total_linea
     //     de getDetalleAnalitico -> cuadra exacto con el Detalle por Producto.
-    let qLineas = supabase
-      .from('ventas_detalle')
-      .select(
-        'cantidad, precio_unitario, ventas_encabezado!inner(descuento, aplica_impuesto, porcentaje_impuesto, cliente_id, almacen_id, estado_pago, fecha_venta)'
-      )
-    if (filtros.fechaInicio) qLineas = qLineas.gte('ventas_encabezado.fecha_venta', `${filtros.fechaInicio}T00:00:00`)
-    if (filtros.fechaFin) qLineas = qLineas.lte('ventas_encabezado.fecha_venta', `${filtros.fechaFin}T23:59:59`)
-    if (filtros.clienteId != null) qLineas = qLineas.eq('ventas_encabezado.cliente_id', filtros.clienteId)
-    if (filtros.almacenId != null) qLineas = qLineas.eq('ventas_encabezado.almacen_id', filtros.almacenId)
-    if (filtros.estadoPago) qLineas = qLineas.eq('ventas_encabezado.estado_pago', filtros.estadoPago)
-
-    const { data: lineas, error: errLineas } = await qLineas
-    if (errLineas) return { totalVentas: 0, totalSaldo: 0, totalComisiones: 0, count: 0, error: errLineas.message }
+    const { data: lineas, error: errLineas } = await ejecutarVigentes<unknown[] | null>((filtrar) => {
+      let qLineas = supabase
+        .from('ventas_detalle')
+        .select(
+          'cantidad, precio_unitario, ventas_encabezado!inner(descuento, aplica_impuesto, porcentaje_impuesto, cliente_id, almacen_id, estado_pago, fecha_venta)'
+        )
+      if (filtrar) qLineas = qLineas.is('ventas_encabezado.anulada_at', null)
+      if (filtros.fechaInicio) qLineas = qLineas.gte('ventas_encabezado.fecha_venta', `${filtros.fechaInicio}T00:00:00`)
+      if (filtros.fechaFin) qLineas = qLineas.lte('ventas_encabezado.fecha_venta', `${filtros.fechaFin}T23:59:59`)
+      if (filtros.clienteId != null) qLineas = qLineas.eq('ventas_encabezado.cliente_id', filtros.clienteId)
+      if (filtros.almacenId != null) qLineas = qLineas.eq('ventas_encabezado.almacen_id', filtros.almacenId)
+      if (filtros.estadoPago) qLineas = qLineas.eq('ventas_encabezado.estado_pago', filtros.estadoPago)
+      return qLineas
+    }) as { data: any[] | null; error: { message?: string } | null }
+    if (errLineas) return { totalVentas: 0, totalSaldo: 0, totalComisiones: 0, count: 0, error: errLineas.message || 'Error' }
 
     const totalVentas = +(lineas || [])
       .reduce((acc, d) => {
@@ -325,15 +355,17 @@ export async function getVentasResumenTotales(filtros: {
       .toFixed(2)
 
     // --- Saldo pendiente desde el encabezado (invoice-level).
-    let qEnc = supabase.from('ventas_encabezado').select('total_venta, valorpago')
-    if (filtros.fechaInicio) qEnc = qEnc.gte('fecha_venta', `${filtros.fechaInicio}T00:00:00`)
-    if (filtros.fechaFin) qEnc = qEnc.lte('fecha_venta', `${filtros.fechaFin}T23:59:59`)
-    if (filtros.clienteId != null) qEnc = qEnc.eq('cliente_id', filtros.clienteId)
-    if (filtros.almacenId != null) qEnc = qEnc.eq('almacen_id', filtros.almacenId)
-    if (filtros.estadoPago) qEnc = qEnc.eq('estado_pago', filtros.estadoPago)
-
-    const { data: encs, error: errEnc } = await qEnc
-    if (errEnc) return { totalVentas, totalSaldo: 0, totalComisiones: 0, count: 0, error: errEnc.message }
+    const { data: encs, error: errEnc } = await ejecutarVigentes<{ total_venta: number; valorpago: number }[] | null>((filtrar) => {
+      let qEnc = supabase.from('ventas_encabezado').select('total_venta, valorpago')
+      if (filtrar) qEnc = qEnc.is('anulada_at', null)
+      if (filtros.fechaInicio) qEnc = qEnc.gte('fecha_venta', `${filtros.fechaInicio}T00:00:00`)
+      if (filtros.fechaFin) qEnc = qEnc.lte('fecha_venta', `${filtros.fechaFin}T23:59:59`)
+      if (filtros.clienteId != null) qEnc = qEnc.eq('cliente_id', filtros.clienteId)
+      if (filtros.almacenId != null) qEnc = qEnc.eq('almacen_id', filtros.almacenId)
+      if (filtros.estadoPago) qEnc = qEnc.eq('estado_pago', filtros.estadoPago)
+      return qEnc
+    })
+    if (errEnc) return { totalVentas, totalSaldo: 0, totalComisiones: 0, count: 0, error: errEnc.message || 'Error' }
 
     const rows = encs || []
     const totalSaldo = +rows
@@ -344,16 +376,18 @@ export async function getVentasResumenTotales(filtros: {
     //     con join !inner al encabezado, mismos filtros). = Σ monto_bruto*%/100.
     //     Resiliente: si la tabla no existe (migracion 011 pendiente) -> 0.
     let totalComisiones = 0
-    let qCom = supabase
-      .from('ventas_pagos_detalle')
-      .select('monto_bruto, porcentaje_comision, ventas_encabezado!inner(cliente_id, almacen_id, estado_pago, fecha_venta)')
-    if (filtros.fechaInicio) qCom = qCom.gte('ventas_encabezado.fecha_venta', `${filtros.fechaInicio}T00:00:00`)
-    if (filtros.fechaFin) qCom = qCom.lte('ventas_encabezado.fecha_venta', `${filtros.fechaFin}T23:59:59`)
-    if (filtros.clienteId != null) qCom = qCom.eq('ventas_encabezado.cliente_id', filtros.clienteId)
-    if (filtros.almacenId != null) qCom = qCom.eq('ventas_encabezado.almacen_id', filtros.almacenId)
-    if (filtros.estadoPago) qCom = qCom.eq('ventas_encabezado.estado_pago', filtros.estadoPago)
-
-    const { data: pagos, error: errCom } = await qCom
+    const { data: pagos, error: errCom } = await ejecutarVigentes<{ monto_bruto: number; porcentaje_comision: number }[] | null>((filtrar) => {
+      let qCom = supabase
+        .from('ventas_pagos_detalle')
+        .select('monto_bruto, porcentaje_comision, ventas_encabezado!inner(cliente_id, almacen_id, estado_pago, fecha_venta)')
+      if (filtrar) qCom = qCom.is('ventas_encabezado.anulada_at', null)
+      if (filtros.fechaInicio) qCom = qCom.gte('ventas_encabezado.fecha_venta', `${filtros.fechaInicio}T00:00:00`)
+      if (filtros.fechaFin) qCom = qCom.lte('ventas_encabezado.fecha_venta', `${filtros.fechaFin}T23:59:59`)
+      if (filtros.clienteId != null) qCom = qCom.eq('ventas_encabezado.cliente_id', filtros.clienteId)
+      if (filtros.almacenId != null) qCom = qCom.eq('ventas_encabezado.almacen_id', filtros.almacenId)
+      if (filtros.estadoPago) qCom = qCom.eq('ventas_encabezado.estado_pago', filtros.estadoPago)
+      return qCom
+    })
     if (!errCom) {
       totalComisiones = +(pagos || [])
         .reduce((acc, p) => acc + Number(p.monto_bruto || 0) * (Number(p.porcentaje_comision || 0) / 100), 0)
@@ -510,6 +544,7 @@ export async function getDetalleAnalitico(
             aplica_impuesto,
             porcentaje_impuesto,
             descuento,
+            anulada_at,
             clientes ( nombre ),
             almacenes ( nombre )
           ),
@@ -524,6 +559,8 @@ export async function getDetalleAnalitico(
       .filter(d => {
         const ve = d.ventas_encabezado as any
         if (!ve) return false
+        // Ventas anuladas (script officemart-003) no cuentan en la analítica.
+        if (ve.anulada_at) return false
         if (fechaInicio && ve.fecha_venta < fechaInicio) return false
         if (fechaFin && ve.fecha_venta > fechaFin + 'T23:59:59') return false
         return true
@@ -630,10 +667,14 @@ export async function getSaldoPendienteCliente(clienteId: number): Promise<numbe
   const supabase = createClient()
   if (!supabase) return 0
   try {
-    const { data, error } = await supabase
-      .from('ventas_encabezado')
-      .select('total_venta, valorpago')
-      .eq('cliente_id', clienteId)
+    const { data, error } = await ejecutarVigentes<{ total_venta: number; valorpago: number }[] | null>((filtrar) => {
+      let q = supabase
+        .from('ventas_encabezado')
+        .select('total_venta, valorpago')
+        .eq('cliente_id', clienteId)
+      if (filtrar) q = q.is('anulada_at', null)
+      return q
+    })
     if (error) return 0
     return +(data || [])
       .reduce((a, v) => a + Math.max(0, Number(v.total_venta || 0) - Number(v.valorpago || 0)), 0)
@@ -705,11 +746,15 @@ export async function getFacturasVencidasCliente(
   const supabase = createClient()
   if (!supabase) return { vencidas: 0, diasMaxVencido: 0 }
   try {
-    const { data, error } = await supabase
-      .from('ventas_encabezado')
-      .select('fecha_venta, total_venta, valorpago')
-      .eq('cliente_id', clienteId)
-      .neq('estado_pago', 'Pagado')
+    const { data, error } = await ejecutarVigentes<{ fecha_venta: string; total_venta: number; valorpago: number }[] | null>((filtrar) => {
+      let q = supabase
+        .from('ventas_encabezado')
+        .select('fecha_venta, total_venta, valorpago')
+        .eq('cliente_id', clienteId)
+        .neq('estado_pago', 'Pagado')
+      if (filtrar) q = q.is('anulada_at', null)
+      return q
+    })
     if (error) return { vencidas: 0, diasMaxVencido: 0 }
     return contarFacturasVencidas(
       (data || []) as { fecha_venta?: string | null; total_venta?: number | null; valorpago?: number | null }[],
@@ -1197,6 +1242,45 @@ export async function registrarPago(
   pago: Omit<PagoVenta, 'id' | 'fecha_pago'>,
   opciones?: { cuenta_id?: number | null }
 ): Promise<{ data: PagoVenta | null; error: string | null }> {
+  // Desde officemart-003 todo abono nuevo es un RECIBO DE COBRO (una
+  // aplicacion). Si la tabla de recibos no existe todavia, cae al flujo
+  // anterior (abono directo en pagos_ventas).
+  if (isSupabaseConfigured() && pago.venta_id != null) {
+    const metodo: 'Efectivo' | 'Banco' | 'Otro' =
+      pago.metodo_pago === 'Efectivo' ? 'Efectivo'
+      : /banco|transferencia|tarjeta|link/i.test(pago.metodo_pago || '') ? 'Banco'
+      : 'Otro'
+    // Banco sin cuenta elegida (UI vieja de CxC): se registra como 'Otro'
+    // (baja el saldo sin asiento bancario), igual que antes.
+    const metodoEfectivo = metodo === 'Banco' && !opciones?.cuenta_id ? 'Otro' : metodo
+    const supabaseCli = createClient()
+    if (supabaseCli) {
+      const { data: venta } = await supabaseCli
+        .from('ventas_encabezado')
+        .select('cliente_id')
+        .eq('id', pago.venta_id)
+        .maybeSingle()
+      if (venta?.cliente_id != null) {
+        const r = await registrarReciboCobro({
+          cliente_id: Number(venta.cliente_id),
+          metodo_pago: metodoEfectivo,
+          cuenta_id: opciones?.cuenta_id ?? null,
+          aplicaciones: [{ venta_id: pago.venta_id, monto: pago.monto }],
+        })
+        if (!r.error && r.data) {
+          return {
+            data: { ...pago, id: r.data.id, fecha_pago: getHondurasNowISO() },
+            error: null,
+          }
+        }
+        if (r.error !== RECIBOS_FEATURE_PENDING && !/siguiente_correlativo|correlativos/i.test(r.error || '')) {
+          return { data: null, error: r.error }
+        }
+        // Script 003 pendiente: flujo anterior.
+      }
+    }
+  }
+
   if (!isSupabaseConfigured()) {
     const savedPagos = localStorage.getItem('pagos_ventas')
     const savedVentas = localStorage.getItem('ventas_encabezado')
@@ -1426,27 +1510,33 @@ export async function getCuentasPorCobrar(): Promise<{ data: CuentaPorCobrar[]; 
       clientes: { nombre: string } | null
     }
 
-    const primary = await supabase
-      .from('ventas_encabezado')
-      .select(baseSelect.replace('estado_pago', 'valorpago,\n      estado_pago'))
-      .neq('estado_pago', 'Pagado')
-      .order('fecha_venta', { ascending: false })
+    const primary = await ejecutarVigentes<unknown[] | null>((filtrar) => {
+      let q = supabase
+        .from('ventas_encabezado')
+        .select(baseSelect.replace('estado_pago', 'valorpago,\n      estado_pago'))
+        .neq('estado_pago', 'Pagado')
+      if (filtrar) q = q.is('anulada_at', null)
+      return q.order('fecha_venta', { ascending: false })
+    })
 
     let ventasData = primary.data as unknown as CxcRow[] | null
     let ventasError = primary.error
 
     // Fallback: columna `valorpago` aun no existe en la DB.
     if (ventasError && /valorpago/i.test(ventasError.message || '')) {
-      const retry = await supabase
-        .from('ventas_encabezado')
-        .select(baseSelect)
-        .neq('estado_pago', 'Pagado')
-        .order('fecha_venta', { ascending: false })
+      const retry = await ejecutarVigentes<unknown[] | null>((filtrar) => {
+        let q = supabase
+          .from('ventas_encabezado')
+          .select(baseSelect)
+          .neq('estado_pago', 'Pagado')
+        if (filtrar) q = q.is('anulada_at', null)
+        return q.order('fecha_venta', { ascending: false })
+      })
       ventasData = retry.data as unknown as CxcRow[] | null
       ventasError = retry.error
     }
 
-    if (ventasError) return { data: [], error: ventasError.message }
+    if (ventasError) return { data: [], error: ventasError.message || 'Error' }
 
     // Para ventas SIN valorpago (historicas), calculamos total abonado
     // desde pagos_ventas para no perder cartera. Las nuevas usan valorpago.
@@ -1613,13 +1703,17 @@ export async function getVentasDiariasMesActual(): Promise<{ data: VentaDiaria[]
   const supabase = createClient()
   if (!supabase) return { data: [], error: 'Cliente no disponible' }
   try {
-    const { data, error } = await supabase
-      .from('ventas_encabezado')
-      .select('fecha_venta, total_venta')
-      .gte('fecha_venta', `${year}-${mm}-01T00:00:00`)
-      // Cota superior naive (sin offset) para no arrastrar 6h del mes siguiente.
-      .lte('fecha_venta', `${year}-${mm}-${String(diasEnMes).padStart(2, '0')}T23:59:59`)
-    if (error) return { data: [], error: error.message }
+    const { data, error } = await ejecutarVigentes<{ fecha_venta: string | null; total_venta: number | null }[] | null>((filtrar) => {
+      let q = supabase
+        .from('ventas_encabezado')
+        .select('fecha_venta, total_venta')
+        .gte('fecha_venta', `${year}-${mm}-01T00:00:00`)
+        // Cota superior naive (sin offset) para no arrastrar 6h del mes siguiente.
+        .lte('fecha_venta', `${year}-${mm}-${String(diasEnMes).padStart(2, '0')}T23:59:59`)
+      if (filtrar) q = q.is('anulada_at', null)
+      return q
+    })
+    if (error) return { data: [], error: error.message || 'Error' }
     for (const v of (data || []) as { fecha_venta: string | null; total_venta: number | null }[]) {
       acumular(v.fecha_venta, v.total_venta)
     }
@@ -1875,6 +1969,9 @@ export async function getVentasDashboard(anio?: number, mes?: number): Promise<{
       `)
 
     if (tenantId != null) ventasQuery = ventasQuery.eq('razon_social_id', tenantId)
+    // Solo ventas vigentes (script officemart-003). Sin reintento: el flag ya lo
+    // fijaron las consultas previas de la sesion (getVentas, CxC, etc.).
+    if (filtrarVigentesActivo()) ventasQuery = ventasQuery.is('anulada_at', null)
 
     if (anio) {
       // Limites naive (sin offset) para casar con fecha_venta HN-as-UTC y no
@@ -1933,6 +2030,7 @@ export async function getVentasDashboard(anio?: number, mes?: number): Promise<{
       .from('ventas_encabezado')
       .select('total_venta, fecha_venta')
     if (tenantId != null) trendQuery = trendQuery.eq('razon_social_id', tenantId)
+    if (filtrarVigentesActivo()) trendQuery = trendQuery.is('anulada_at', null)
     const { data: ventasTrendData } = await trendQuery
     
     const ventasMesActual = (ventasTrendData || [])
@@ -2030,6 +2128,7 @@ export async function getVentasDashboard(anio?: number, mes?: number): Promise<{
       .from('ventas_encabezado')
       .select('id, total_venta, fecha_venta')
     if (tenantId != null) trendConIdQuery = trendConIdQuery.eq('razon_social_id', tenantId)
+    if (filtrarVigentesActivo()) trendConIdQuery = trendConIdQuery.is('anulada_at', null)
     const { data: trendConId } = await trendConIdQuery
 
     const ventasPorAnioMap: Record<number, { ventas: number; ganancia: number; facturas: number }> = {}
@@ -2352,6 +2451,12 @@ export async function eliminarVentaCompletamente(
       return { error: 'La venta no pertenece a la empresa activa' }
     }
 
+    // ----- 0.0 Candados (script officemart-003) -----------------------------
+    // Una venta anulada, con abonos por recibo o con asientos conciliados no
+    // se borra: su historia debe conservarse ("usa Anular").
+    const candado = await candadoBorradoVenta(supabase, venta as VentaEncabezado)
+    if (candado) return { error: candado }
+
     // ----- 0.a Snapshot ANTES de borrar (encabezado + lineas + pagos) ------
     // Se guarda en ventas_eliminadas al final. Best-effort: si la tabla 059 no
     // existe, no bloquea la eliminacion (solo se pierde la trazabilidad).
@@ -2431,6 +2536,234 @@ export async function eliminarVentaCompletamente(
     console.error('[eliminarVentaCompletamente] Exception:', err)
     return { error: 'No se pudo eliminar la venta' }
   }
+}
+
+// ==================== ANULACIÓN (compensar, no borrar) ====================
+
+/**
+ * Motivo por el que una venta NO puede borrarse ni editarse físicamente (o
+ * null si puede). Best-effort: si las tablas/columnas del script 003 no
+ * existen, no bloquea.
+ */
+async function candadoBorradoVenta(
+  supabase: NonNullable<ReturnType<typeof createClient>>,
+  venta: VentaEncabezado
+): Promise<string | null> {
+  if (venta.anulada_at) return 'Esta factura ya está anulada; no se puede borrar ni editar.'
+  const { count: recibos } = await supabase
+    .from('pagos_ventas')
+    .select('id', { count: 'exact', head: true })
+    .eq('venta_id', venta.id!)
+    .not('recibo_id', 'is', null)
+  if ((recibos || 0) > 0) {
+    return 'Esta factura tiene abonos por recibo de cobro. Anula primero el recibo, o anula la factura en vez de borrarla.'
+  }
+  const { count: conciliados } = await supabase
+    .from('cuenta_movimientos')
+    .select('id', { count: 'exact', head: true })
+    .eq('ref_tipo', 'venta')
+    .eq('ref_id', venta.id!)
+    .not('conciliado_at', 'is', null)
+  if ((conciliados || 0) > 0) {
+    return 'Esta factura tiene movimientos bancarios ya conciliados. Usa Anular (registra contra-asientos) en vez de borrar.'
+  }
+  return null
+}
+
+/**
+ * Regla de anulación (pura). Devuelve el motivo por el que NO se puede anular
+ * la venta, o null si procede.
+ */
+export function validarAnulacion(input: {
+  anulada?: boolean
+  devolucionesVigentes?: number
+  abonosConRecibo?: number
+  valorpago?: number
+  reembolso?: { destino: 'caja' | 'cuenta'; cuenta_id?: number | null } | null
+  motivo?: string | null
+}): string | null {
+  if (!(input.motivo || '').trim()) return 'Indica el motivo de la anulación.'
+  if (input.anulada) return 'La venta ya está anulada.'
+  if ((input.devolucionesVigentes || 0) > 0) {
+    return 'La venta tiene devoluciones vigentes. Anula primero la devolución.'
+  }
+  if ((input.abonosConRecibo || 0) > 0) {
+    return 'La venta tiene abonos por recibo de cobro. Anula primero el recibo.'
+  }
+  const pagado = Number(input.valorpago || 0)
+  if (pagado > 0.005) {
+    if (!input.reembolso) return 'La venta tiene dinero cobrado: indica a dónde se devuelve (caja o cuenta).'
+    if (input.reembolso.destino === 'cuenta' && !input.reembolso.cuenta_id) {
+      return 'Selecciona la cuenta bancaria del reembolso.'
+    }
+  }
+  return null
+}
+
+/**
+ * ANULA una venta conservando su documento: registra contra-asientos (el
+ * stock vuelve a entrar; el dinero cobrado sale de caja/cuenta) y marca
+ * `anulada_at`. NO toca detalle, pagos ni valorpago: la factura queda como
+ * foto histórica y deja de contar en reportes (filtro `anulada_at IS NULL`).
+ * Con CAI el documento nunca se borra: se anula o se emite nota de crédito.
+ */
+export async function anularVenta(
+  ventaId: number,
+  input: {
+    motivo: string
+    tipo?: 'Anulacion' | 'Reclamo'
+    reclamo_id?: number | null
+    /** Obligatorio si la venta tiene dinero cobrado (valorpago > 0). */
+    reembolso?: { destino: 'caja' | 'cuenta'; cuenta_id?: number | null } | null
+  }
+): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured()) return { error: 'Supabase no configurado' }
+  const supabase = createClient()
+  if (!supabase) return { error: 'Cliente no disponible' }
+
+  try {
+    const stamp = await getTenantStamp(supabase)
+    if (!isValidStamp(stamp)) return { error: SESION_INVALIDA_ERROR }
+
+    const { data: venta, error: vErr } = await supabase
+      .from('ventas_encabezado')
+      .select('*')
+      .eq('id', ventaId)
+      .single()
+    if (vErr || !venta) return { error: 'La venta no existe' }
+    if (venta.razon_social_id !== stamp.razon_social_id) return { error: 'La venta no pertenece a la empresa activa' }
+
+    // Contexto para la regla (best-effort: tablas del 003/020 pueden no existir).
+    const [{ count: devVigentes }, { count: abonosRecibo }] = await Promise.all([
+      supabase.from('devoluciones_encabezado').select('id', { count: 'exact', head: true }).eq('venta_id', ventaId).is('anulada_at', null),
+      supabase.from('pagos_ventas').select('id', { count: 'exact', head: true }).eq('venta_id', ventaId).not('recibo_id', 'is', null),
+    ])
+    const invalido = validarAnulacion({
+      anulada: !!venta.anulada_at,
+      devolucionesVigentes: devVigentes || 0,
+      abonosConRecibo: abonosRecibo || 0,
+      valorpago: Number(venta.valorpago || 0),
+      reembolso: input.reembolso ?? null,
+      motivo: input.motivo,
+    })
+    if (invalido) return { error: invalido }
+    const motivoLimpio = input.motivo.trim()
+
+    // 1) Marcar (idempotente): si otra sesión ya la anuló, no hay doble compensación.
+    const { data: marcada, error: mErr } = await supabase
+      .from('ventas_encabezado')
+      .update({
+        anulada_at: getHondurasNowISO(),
+        anulada_por: stamp.usuario,
+        motivo_anulacion: motivoLimpio,
+        anulacion_tipo: input.tipo || 'Anulacion',
+        reclamo_id: input.reclamo_id ?? null,
+      })
+      .eq('id', ventaId)
+      .is('anulada_at', null)
+      .select('id')
+    if (mErr) {
+      if (/anulada_at|anulacion_tipo|reclamo_id/i.test(mErr.message || '')) {
+        return { error: 'Anulación pendiente: aplica scripts/officemart-003-anulacion-recibos.sql en Supabase.' }
+      }
+      return { error: mErr.message }
+    }
+    if (!marcada || marcada.length === 0) return { error: 'La venta ya está anulada.' }
+
+    // 2) Contra-asientos.
+    const comp = await compensarEfectosVenta(supabase, venta as VentaEncabezado, stamp, input.reembolso ?? null, motivoLimpio)
+
+    // 3) Bitácora.
+    await registrarAuditoria(supabase, stamp, {
+      entidad: 'venta',
+      entidad_id: ventaId,
+      accion: comp.error ? 'anulacion_incompleta' : 'anular',
+      motivo: motivoLimpio,
+      antes: { numero_factura: venta.numero_factura, total_venta: venta.total_venta, valorpago: venta.valorpago, estado_pago: venta.estado_pago, numero_fiscal: venta.numero_fiscal ?? null },
+      despues: comp.error ? { error: comp.error } : undefined,
+    })
+
+    if (comp.error) {
+      return { error: `La factura quedó anulada, pero falló parte de la compensación: ${comp.error}. Regulariza en Inventario/Finanzas.` }
+    }
+    return { error: null }
+  } catch (err) {
+    console.error('[anularVenta] Exception:', err)
+    return { error: 'No se pudo anular la venta' }
+  }
+}
+
+/**
+ * Contra-asientos de una venta anulada (hermana de `revertirEfectosVenta`,
+ * que BORRA; esta AGREGA):
+ *   - Inventario: por cada línea con producto, `ajustarStock(+cantidad)` y
+ *     kardex 'Entrada Anulacion' (fallback 'Ingreso Manual') con
+ *     referencia_id = venta y referencia_tipo = 'anulacion_venta', en el
+ *     almacén/localización de la salida original.
+ *   - Dinero: si hubo cobro (valorpago > 0), 'Salida' de caja o 'Egreso' de
+ *     cuenta por ese monto con ref_tipo='anulacion_venta'.
+ */
+async function compensarEfectosVenta(
+  supabase: NonNullable<ReturnType<typeof createClient>>,
+  venta: VentaEncabezado,
+  stamp: { razon_social_id: number | null; usuario: string | null },
+  reembolso: { destino: 'caja' | 'cuenta'; cuenta_id?: number | null } | null,
+  motivo: string
+): Promise<{ error: string | null }> {
+  const ventaId = venta.id!
+  const errores: string[] = []
+
+  // ----- Inventario -------------------------------------------------------
+  const [{ data: detalles }, { data: salidas }] = await Promise.all([
+    supabase.from('ventas_detalle').select('producto_id, cantidad, costo_promedio_momento').eq('venta_id', ventaId).eq('razon_social_id', stamp.razon_social_id),
+    supabase.from('transacciones_inventario').select('producto_id, almacen_id, localizacion_id').eq('referencia_id', ventaId).eq('tipo_movimiento', 'Salida Venta').eq('razon_social_id', stamp.razon_social_id),
+  ])
+  const ubicacion = new Map<number, { almacen_id: number; localizacion_id: number }>()
+  for (const s of salidas || []) if (!ubicacion.has(s.producto_id)) ubicacion.set(s.producto_id, { almacen_id: s.almacen_id, localizacion_id: s.localizacion_id })
+
+  for (const linea of detalles || []) {
+    if (linea.producto_id == null) continue // Venta Rápida: no movió inventario
+    const cant = Number(linea.cantidad || 0)
+    if (cant <= 0) continue
+    const aj = await ajustarStock(supabase, linea.producto_id, cant, stamp.razon_social_id)
+    if (aj.error) errores.push(`stock producto ${linea.producto_id}: ${aj.error}`)
+    const u = ubicacion.get(linea.producto_id)
+    const fila = {
+      producto_id: linea.producto_id,
+      almacen_id: u?.almacen_id ?? venta.almacen_id ?? null,
+      localizacion_id: u?.localizacion_id ?? null,
+      tipo_movimiento: 'Entrada Anulacion',
+      cantidad: cant,
+      costo_o_precio_unitario: Number(linea.costo_promedio_momento || 0),
+      referencia_id: ventaId,
+      referencia_tipo: 'anulacion_venta',
+      fecha: getHondurasNowISO(),
+      ...stamp,
+    }
+    let { error: kErr } = await supabase.from('transacciones_inventario').insert(fila)
+    if (kErr) {
+      // CHECK del tipo o columna referencia_tipo ausente: reintento compatible.
+      const { referencia_tipo: _rt, ...sinRefTipo } = fila
+      const retry = await supabase.from('transacciones_inventario').insert({ ...sinRefTipo, tipo_movimiento: 'Ingreso Manual' })
+      kErr = retry.error
+    }
+    if (kErr) errores.push(`kardex producto ${linea.producto_id}: ${kErr.message}`)
+  }
+
+  // ----- Dinero -----------------------------------------------------------
+  const pagado = +Number(venta.valorpago || 0).toFixed(2)
+  if (pagado > 0.005 && reembolso) {
+    const concepto = `Anulación ${venta.numero_factura}: ${motivo}`
+    if (reembolso.destino === 'caja') {
+      const r = await registrarMovimientoCaja({ tipo: 'Salida', monto: pagado, concepto, ref_tipo: 'anulacion_venta', ref_id: ventaId })
+      if (r.error) errores.push(`reembolso caja: ${r.error}`)
+    } else if (reembolso.cuenta_id) {
+      const r = await registrarMovimientoCuenta({ cuenta_id: reembolso.cuenta_id, tipo: 'Egreso', monto: pagado, concepto, ref_tipo: 'anulacion_venta', ref_id: ventaId })
+      if (r.error) errores.push(`reembolso cuenta: ${r.error}`)
+    }
+  }
+
+  return { error: errores.length ? errores.join(' · ') : null }
 }
 
 // ==================== FACTURAS ELIMINADAS (trazabilidad) ====================
@@ -2569,13 +2902,16 @@ export async function editarVenta(
     // 0. La venta debe existir y ser del tenant.
     const { data: venta, error: vErr } = await supabase
       .from('ventas_encabezado')
-      .select('id, razon_social_id, numero_factura, almacen_id')
+      .select('*')
       .eq('id', ventaId)
       .single()
     if (vErr || !venta) return { error: 'La venta no existe' }
     if (venta.razon_social_id !== stamp.razon_social_id) {
       return { error: 'La venta no pertenece a la empresa activa' }
     }
+    // Candados del script officemart-003 (anulada, recibos, conciliados).
+    const candado = await candadoBorradoVenta(supabase, venta as VentaEncabezado)
+    if (candado) return { error: candado }
 
     // 1. Bloqueo: no editar si la factura tiene devoluciones (conflicto
     //    logico: la devolucion ya reverso inventario/dinero de esta venta).
