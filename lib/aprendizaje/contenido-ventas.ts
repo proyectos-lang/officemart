@@ -640,4 +640,30 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
       "ventas por punto", "sin movimiento", "inventario inmovilizado", "margen", "utilidad", "participacion", "excel",
     ],
   },
+  {
+    modulo: "Comisiones",
+    titulo: "Comisiones de vendedores",
+    descripcion:
+      "Define políticas de comisión (por vendedor, categoría o línea; sobre venta o utilidad; al facturar o al cobrar), calcula el período y liquídalas creando el gasto.",
+    queHace: [
+      "Políticas: nombre, vendedor (o todos), base (venta sin ISV o utilidad = venta − costo), momento (al facturar o al cobrar), filtro opcional por categoría o línea y vigencia. Cuando varias aplican, gana la más específica: vendedor > categoría/línea > general.",
+      "Calcular: elige período y vendedor. Al facturar toma las facturas vigentes del período; al cobrar toma los abonos y recibos del período y comisiona la parte proporcional de cada línea. Las devoluciones vigentes del período restan. Ventas sin vendedor no comisionan.",
+      "Lo ya liquidado no vuelve a aparecer. Ves por vendedor: ventas, cobrado, devoluciones y comisión, con el detalle por concepto; exporta a Excel.",
+      "Liquidar: crea la liquidación (con su detalle) y el gasto 'Comisiones de ventas' (categoría Nómina), pagado de inmediato (caja o banco) o pendiente en Cuentas por Pagar. Pestaña Liquidaciones: marcar pagada o anular (solo las no pagadas).",
+    ],
+    queNoHace: [
+      "No calcula sin políticas activas ni sin la vista de reportes (script officemart-007).",
+      "No comisiona el ISV ni el descuento global de la factura: la base es lo vendido por línea (cantidad × precio).",
+      "No paga por sí sola: el pago es el del gasto (Finanzas → Gastos).",
+    ],
+    operaciones: [
+      { titulo: "Configurar una comisión general al cobro", pasos: ["Ventas → Comisiones → Políticas → Nueva.", "Nombre '3 % general', vendedor Todos, base Venta, momento Al cobrar, 3 %. Guarda."] },
+      { titulo: "Liquidar el mes", pasos: ["Pestaña Calcular: primer y último día del mes, Calcular.", "Revisa el detalle de cada vendedor y presiona 'Liquidar'; elige si se paga ahora.", "El gasto queda en Finanzas → Gastos; la liquidación en la pestaña Liquidaciones."] },
+    ],
+    faqs: [
+      { pregunta: "Un vendedor no aparece en el cálculo.", respuesta: "Sus ventas no tienen vendedor asignado (columna Vendedor en Historial) o no hay política que le aplique en ese momento (facturación/cobro) y vigencia." },
+      { pregunta: "¿Puedo comisionar distinto la línea Escolar?", respuesta: "Sí: crea una política con 'Solo línea = Escolar' y su %. Para las demás líneas rige la general." },
+    ],
+    keywords: ["comision", "comisiones", "vendedor", "politica", "liquidar", "liquidacion", "al cobro", "al facturar", "utilidad", "porcentaje", "nomina vendedores"],
+  },
 ]

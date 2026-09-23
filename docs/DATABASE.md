@@ -579,6 +579,16 @@ Nullable; qué recepción generó la entrada (`'Entrada Compra'`, `referencia_id
 
 ---
 
+## Officemart — comisiones (script officemart-011)
+
+### `politicas_comision`
+`id, razon_social_id, nombre, vendedor_id (NULL = todos), base ('venta'|'utilidad'), porcentaje, categoria_id, linea_id, momento ('facturacion'|'cobro'), vigente_desde, vigente_hasta, activo, usuario, created_at, updated_at`. RLS por tenant.
+
+### `comisiones_liquidaciones` + `comisiones_liquidaciones_detalle`
+Liquidación `vendedor_id, periodo_desde, periodo_hasta, total, estado ('Aprobada'|'Pagada'|'Anulada'), gasto_id, notas`; detalle `venta_id, recibo_id, devolucion_id, fecha, concepto, base, porcentaje, monto`. `lib/services/comisiones.ts`: puras `politicaAplicable` (vendedor > categoría/línea > general, vigencia y momento) y `calcularComisiones({lineas, cobros, devoluciones, politicas, desde, hasta})`; `calcularComisionesPeriodo` lee `vista_ventas_reporte` (líneas vigentes con vendedor), `pagos_ventas` (cobros del período, con `recibo_id`) y `devoluciones_encabezado` vigentes, y excluye lo ya liquidado; `liquidarComisiones` inserta liquidación + detalle y crea el gasto "Comisiones de ventas" (`createGasto`, categoría Nómina; pagado o pendiente). Módulo "Comisiones".
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

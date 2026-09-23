@@ -83,12 +83,12 @@ export interface ModuloGranular {
 }
 
 /**
- * 56 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 57 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
  * Facturación", "Cotizaciones", "Estado de Cuenta", "Reportes de Ventas",
- * "Trazabilidad", "Backorder", "Reportes de Compras", "Reposición" y TODOS
- * los de la
+ * "Trazabilidad", "Backorder", "Reportes de Compras", "Reposición",
+ * "Comisiones" y TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -127,6 +127,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // punto/vendedor/zona/línea/categoría + productos sin movimiento.
   { nombre: "Estado de Cuenta", href: "/ventas/estado-cuenta", categoria: "Ventas", icon: ClipboardList },
   { nombre: "Reportes de Ventas", href: "/ventas/reportes", categoria: "Ventas", icon: BarChart3 },
+  // NUEVO (no-base, officemart-011): políticas de comisión, cálculo del
+  // período (al facturar / al cobrar) y liquidación con gasto.
+  { nombre: "Comisiones", href: "/ventas/comisiones", categoria: "Ventas", icon: Coins },
 
   // ── Compras ────────────────────────────────────────────────────────────
   { nombre: "Orden de Compra", href: "/compras/orden", categoria: "Compras", icon: FileText },
