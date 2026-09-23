@@ -559,6 +559,16 @@ Nullable; qué recepción generó la entrada (`'Entrada Compra'`, `referencia_id
 
 ---
 
+## Officemart — reposición y reportes de compras (script officemart-009)
+
+### `productos_reorden`
+`id, razon_social_id, producto_id, almacen_id (NULL = global), stock_minimo, punto_reorden, cantidad_sugerida (lote fijo), usuario, created_at, updated_at`; índices únicos parciales (producto global / producto+almacén). RLS por tenant. `lib/services/reposicion.ts`: `getReposicion(hoy)` cruza productos, mínimos, ventas vigentes de 90 días (`ventas_detalle` + `ventas_encabezado!inner`), OC pendientes (en tránsito) y `compras_recepciones` (lead time real); puras `calcularCobertura`, `calcularSugerido` (objetivo = max(punto_reorden, venta_diaria × (lead+7), mínimo×2) − stock − tránsito, redondeado al lote), `estadoReposicion`; `saveReorden`, `crearOCBorradorDesdeReposicion` (→ `createCompra` Pendiente). `dashboard.getProductosStockBajo` usa el mínimo del producto si existe. Módulo "Reposición".
+
+### Reportes de compras (sin tabla)
+`lib/services/reportes-compras.ts`: `getEstadisticasOC(desde, hasta)` → pura `calcularEstadisticasOC(compras, detalles, recepciones)` (por OC: cumplimiento, valor ordenado/recibido/en tránsito, lead time = orden → primera recepción, retraso vs tentativa; por proveedor; top productos); `getEstadoCuentaProveedor(id, {desde, hasta, hoy})` → pura `construirEstadoCuentaProveedor` (débitos: recepciones de OC y gastos con proveedor; créditos: `compras_pagos` vigentes y pagos de gastos desde caja/cuenta `ref_tipo='gasto'`; pendientes con vencimiento). Página `compras/reportes` (módulo "Reportes de Compras"), acceso desde Proveedores.
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

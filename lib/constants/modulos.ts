@@ -51,6 +51,7 @@ import {
   MapPin,
   Route,
   PackageMinus,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react"
 
@@ -82,11 +83,12 @@ export interface ModuloGranular {
 }
 
 /**
- * 54 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 56 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
  * Facturación", "Cotizaciones", "Estado de Cuenta", "Reportes de Ventas",
- * "Trazabilidad", "Backorder" y TODOS los de la
+ * "Trazabilidad", "Backorder", "Reportes de Compras", "Reposición" y TODOS
+ * los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -134,6 +136,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // NUEVO (no-base, officemart-008): órdenes recibidas parcialmente con
   // pendiente de entrega; permite cerrar lo que no llegará.
   { nombre: "Backorder", href: "/compras/backorder", categoria: "Compras", icon: PackageMinus },
+  // NUEVO (no-base, officemart-009): estadísticas de OC (cumplimiento, lead
+  // time, en tránsito) y estado de cuenta de proveedor.
+  { nombre: "Reportes de Compras", href: "/compras/reportes", categoria: "Compras", icon: BarChart3 },
 
   // ── Inventario ─────────────────────────────────────────────────────────
   {
@@ -158,6 +163,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // NUEVO (no-base, officemart-007): trazabilidad por producto y por orden de
   // compra (lotes FIFO: de qué OC vino cada unidad y a qué venta fue).
   { nombre: "Trazabilidad", href: "/inventario/trazabilidad", categoria: "Inventario", icon: Route },
+  // NUEVO (no-base, officemart-009): mínimos / punto de reorden, cobertura,
+  // lead time y sugerido de compra con creación de OC en borrador.
+  { nombre: "Reposición", href: "/inventario/reposicion", categoria: "Inventario", icon: RefreshCw },
 
   // ── Produccion (modulos NUEVOS, nacen deshabilitados: no estan en MODULOS_BASE) ──
   { nombre: "Operaciones de Produccion", href: "/produccion/operaciones", categoria: "Produccion", icon: Workflow },

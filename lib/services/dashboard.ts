@@ -292,18 +292,36 @@ export async function getProductosStockBajo(
   if (razonSocialId == null) return { data: [], error: null }
 
   try {
+    // Mínimos por producto (officemart-009): un producto con mínimo propio
+    // aparece si stock <= su mínimo; los demás usan el umbral general.
+    const minimos = new Map<number, number>()
+    try {
+      const { data: reord } = await supabase.from('productos_reorden').select('producto_id, stock_minimo').is('almacen_id', null)
+      for (const r of (reord || []) as { producto_id: number; stock_minimo: number }[]) {
+        if (Number(r.stock_minimo) > 0) minimos.set(Number(r.producto_id), Number(r.stock_minimo))
+      }
+    } catch {
+      /* tabla ausente: solo umbral */
+    }
+    const maxMin = Math.max(umbral, ...minimos.values())
+
     const { data, error } = await supabase
       .from('productos')
       .select('id, nombre, codigo_barras, stock_total')
       .eq('razon_social_id', razonSocialId)
-      .lt('stock_total', umbral)
+      .lte('stock_total', maxMin)
       .order('stock_total', { ascending: true })
 
     if (error) {
       console.log('[Dashboard] getProductosStockBajo error:', error)
       return { data: [], error: error.message }
     }
-    return { data: data || [], error: null }
+    const filtrados = (data || []).filter((p: { id: number; stock_total: number | null }) => {
+      const min = minimos.get(p.id)
+      const stock = Number(p.stock_total || 0)
+      return min != null ? stock <= min : stock < umbral
+    })
+    return { data: filtrados, error: null }
   } catch (err: any) {
     console.log('[Dashboard] Excepcion en getProductosStockBajo:', err)
     return { data: [], error: err?.message || 'Error de conexion' }

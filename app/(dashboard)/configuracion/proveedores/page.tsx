@@ -1,7 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Truck, Pencil, Trash2, Loader2 } from "lucide-react"
+import { Plus, Truck, Pencil, Trash2, Loader2, ClipboardList } from "lucide-react"
+import Link from "next/link"
+import { useAuth } from "@/lib/contexts/auth-context"
 import { ImportarProveedoresDialog } from "./importar-proveedores-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -53,6 +55,8 @@ const FORM_VACIO: Partial<Proveedor> = {
 export default function ProveedoresConfigPage() {
   const { toast } = useToast()
   const { ready, razonSocialId } = useTenant()
+  const { hasModulo } = useAuth()
+  const verEstadoCuenta = hasModulo("Reportes de Compras")
 
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [loading, setLoading] = useState(true)
@@ -240,6 +244,11 @@ export default function ProveedoresConfigPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-1 ml-2">
+                        {verEstadoCuenta && proveedor.id != null && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="Estado de cuenta">
+                            <Link href={`/compras/reportes?proveedorId=${proveedor.id}`}><ClipboardList className="h-4 w-4" /></Link>
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(proveedor)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -275,6 +284,11 @@ export default function ProveedoresConfigPage() {
                       <TableCell className="text-sm text-muted-foreground">{condicionesResumen(proveedor) || "-"}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
+                          {verEstadoCuenta && proveedor.id != null && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="Estado de cuenta">
+                              <Link href={`/compras/reportes?proveedorId=${proveedor.id}`}><ClipboardList className="h-4 w-4" /></Link>
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"

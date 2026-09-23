@@ -354,4 +354,31 @@ export const TUTORIALES_INVENTARIO: TutorialModulo[] = [
     ],
     keywords: ["trazabilidad", "lote", "fifo", "de que compra", "a donde fue", "origen", "destino", "orden de compra", "kardex", "rastrear"],
   },
+  {
+    modulo: "Reposición",
+    titulo: "Reposición (mínimos y punto de reorden)",
+    descripcion:
+      "Qué comprar y cuánto: mínimos y punto de reorden por producto, venta diaria de los últimos 90 días, cobertura, lead time real del proveedor y cantidad sugerida; crea la orden de compra en borrador.",
+    queHace: [
+      "Calcula por producto: stock, en tránsito (OC pendientes), mínimo, punto de reorden, venta diaria (90 días), cobertura en días, lead time real (días entre orden y primera recepción de compras anteriores) y el sugerido de compra.",
+      "Estados: Sin stock, Bajo mínimo, Reordenar (la cobertura no alcanza el lead time + 7 días o está en el punto de reorden) y OK. El filtro 'Requieren atención' oculta los OK.",
+      "Sugerido = lo necesario para llegar al objetivo (el mayor entre el punto de reorden, la demanda del lead time + 7 días y 2× el mínimo) menos stock y tránsito; si defines un lote fijo, se redondea a múltiplos.",
+      "Editar mínimos: botón 'Mínimos' en la fila → mínimo, punto de reorden y lote; se guardan por producto (global).",
+      "Marca productos, ajusta la cantidad y 'Crear OC': genera una orden de compra Pendiente al proveedor elegido con el costo promedio actual; luego la editas en Orden de Compra.",
+      "El Dashboard usa estos mínimos para 'Stock bajo' (los productos sin mínimo siguen usando el umbral general). Exporta a Excel.",
+    ],
+    queNoHace: [
+      "No compra sola ni descuenta nada: solo sugiere y crea la OC en borrador.",
+      "Los mínimos por almacén quedan preparados en la base pero la pantalla trabaja con el mínimo global del producto.",
+      "Sin ventas en 90 días la venta diaria es 0: el sugerido depende solo de mínimos y punto de reorden.",
+    ],
+    operaciones: [
+      { titulo: "Definir mínimos de un producto", pasos: ["Inventario → Reposición, busca el producto y presiona 'Mínimos'.", "Escribe el stock mínimo, el punto de reorden (al llegar ahí, comprar) y opcionalmente el lote de compra; guarda con el disquete."] },
+      { titulo: "Generar la orden de compra de la semana", pasos: ["Filtra 'Requieren atención', marca los productos y ajusta cantidades si hace falta.", "Presiona 'Crear OC', elige proveedor y fecha tentativa; revisa la orden en Compras → Orden de Compra y envíala."] },
+    ],
+    faqs: [
+      { pregunta: "¿Por qué sugiere comprar si tengo stock?", respuesta: "Porque al ritmo de venta actual el stock no cubre el lead time del proveedor más 7 días de colchón, o está en el punto de reorden. Revisa la columna Cobertura vs Lead time." },
+    ],
+    keywords: ["reposicion", "reorden", "minimo", "punto de reorden", "stock bajo", "sugerido", "cobertura", "lead time", "que comprar", "cuanto comprar"],
+  },
 ]

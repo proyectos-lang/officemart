@@ -313,4 +313,27 @@ export const TUTORIALES_COMPRAS: TutorialModulo[] = [
     ],
     keywords: ["backorder", "pendiente de entrega", "falta mercancia", "proveedor debe", "recepcion parcial", "cerrar pendiente", "orden incompleta"],
   },
+  {
+    modulo: "Reportes de Compras",
+    titulo: "Reportes de Compras",
+    descripcion:
+      "Estadísticas de órdenes de compra (cumplimiento, tiempos de entrega, mercancía en tránsito, top productos y proveedores) y estado de cuenta por proveedor con PDF/Excel.",
+    queHace: [
+      "Estadísticas de OC por rango de fecha de orden: órdenes, valor ordenado vs recibido, en tránsito (lo pendiente de OCs abiertas), lead time promedio (días entre la orden y la primera recepción) y órdenes que llegaron tarde respecto a la fecha tentativa.",
+      "Tabla por proveedor (órdenes, valor, cumplimiento %, lead time, tardías) y productos más comprados (unidades, valor, costo promedio de compra).",
+      "Detalle por orden con cumplimiento, en tránsito, lead time y retraso; exportable a Excel.",
+      "Estado de cuenta de proveedor: recepciones de OC (débitos), gastos registrados a ese proveedor, y pagos (anticipos, abonos y pagos de gastos) con saldo corrido, saldo inicial por rango y documentos con saldo/vencidos. PDF y Excel. Se abre también desde Proveedores (ícono de estado de cuenta).",
+    ],
+    queNoHace: [
+      "No registra pagos: los abonos a OC se hacen desde el detalle de la orden y los de gastos desde Finanzas → Gastos.",
+      "Las OC recibidas con el flujo anterior (antes de recepciones parciales) no tienen lead time real ni recepciones separadas; se muestran con lo que hay.",
+    ],
+    operaciones: [
+      { titulo: "Evaluar a un proveedor", pasos: ["Compras → Reportes de Compras → pestaña Estadísticas de OC.", "Ajusta el rango y Consultar; en 'Por proveedor' compara cumplimiento %, lead time y órdenes tarde.", "Abre la pestaña Estado de cuenta de proveedor para ver cuánto le debes y desde cuándo."] },
+    ],
+    faqs: [
+      { pregunta: "El saldo del proveedor no cuadra con Cuentas por Pagar.", respuesta: "Cuentas por Pagar muestra saldos a hoy; el estado de cuenta depende del rango de fechas (lo anterior a 'Desde' va al saldo inicial). Sin rango deben coincidir." },
+    ],
+    keywords: ["reportes compras", "estadisticas oc", "lead time", "cumplimiento", "en transito", "estado de cuenta proveedor", "cuanto le debo", "proveedor", "top productos comprados"],
+  },
 ]
