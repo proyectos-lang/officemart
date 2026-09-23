@@ -666,4 +666,32 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
     ],
     keywords: ["comision", "comisiones", "vendedor", "politica", "liquidar", "liquidacion", "al cobro", "al facturar", "utilidad", "porcentaje", "nomina vendedores"],
   },
+  {
+    modulo: "Firma Digital",
+    titulo: "Firma digital de documentos",
+    descripcion:
+      "Envía cotizaciones, estados de cuenta y otros PDF a firma electrónica: cada firmante recibe un enlace único, firma en pantalla y el sistema genera el PDF con hoja de firmas, folio y hash verificable.",
+    queHace: [
+      "Desde el documento (Cotizaciones → menú → Enviar a firma; Estado de cuenta → Enviar a firma) se genera el PDF, se guarda en el bucket privado con su hash SHA-256 y se crean los firmantes (internos o externos) con enlace único y vencimiento.",
+      "Si el servidor tiene correo configurado (Resend), el enlace se envía por correo; si no, copias el enlace y lo mandas por WhatsApp u otro medio. Se puede reenviar desde la bandeja.",
+      "El firmante abre /firmar/<token>, ve el PDF, escribe su nombre, firma con el dedo/ratón (o acepta con un clic) y confirma. Se registra fecha, IP y navegador.",
+      "Cuando todos firman, el servidor estampa cada página con el folio y agrega la hoja de firmas (imagen, nombre, fecha, IP, método); el PDF firmado se descarga desde la bandeja.",
+      "Verificación pública en /verificar/<folio>: estado, firmantes, hashes; cualquiera puede subir su copia del PDF para comprobar que no fue alterada.",
+      "La bandeja permite anular una solicitud pendiente (los enlaces dejan de funcionar).",
+    ],
+    queNoHace: [
+      "No es firma electrónica certificada (no interviene un prestador de servicios de certificación): es firma electrónica simple conforme al Decreto 149-2013. Para contratos de alto valor consulta a tu asesor legal.",
+      "No edita el PDF original: el firmado es un archivo aparte; el original conserva su hash.",
+      "Los enlaces no piden contraseña: quien tenga el enlace puede firmar en nombre del firmante, así que envíalo solo a su correo o número.",
+    ],
+    operaciones: [
+      { titulo: "Enviar una cotización a firma", pasos: ["Ventas → Cotizaciones → menú de la cotización → Enviar a firma.", "Agrega los firmantes (nombre, correo, interno/externo), días de vigencia y un mensaje.", "Crear solicitud: copia los enlaces o revisa que el correo se haya enviado. Un firmante interno puede firmar de inmediato con «Firmar»."] },
+      { titulo: "Seguir y descargar", pasos: ["Ventas → Firma Digital: filtra por estado, abre el detalle para ver quién vio/firmó y reenviar.", "Cuando esté Firmado, descarga el PDF firmado (o el original) y comparte el enlace de verificación."] },
+    ],
+    faqs: [
+      { pregunta: "¿Qué necesito configurar?", respuesta: "Ejecutar el script officemart-017 (crea las tablas y el bucket privado `documentos`) y, para correos, las variables RESEND_API_KEY y RESEND_FROM en el servidor. Sin correo, el sistema funciona compartiendo el enlace." },
+      { pregunta: "¿Puedo cambiar el PDF después de enviarlo?", respuesta: "No: anula la solicitud y crea una nueva. El hash del original garantiza que lo firmado es exactamente lo enviado." },
+    ],
+    keywords: ["firma", "firma digital", "firma electronica", "firmar", "folio", "hash", "sha-256", "verificar documento", "resend", "correo firma", "decreto 149-2013"],
+  },
 ]

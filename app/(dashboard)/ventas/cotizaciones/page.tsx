@@ -4,7 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   FileText, Plus, Search, Loader2, Send, CheckCircle2, XCircle, Copy, Pencil, Trash2,
-  ShoppingCart, Download, RotateCcw, MoreHorizontal, Eye, AlertTriangle,
+  ShoppingCart, Download, RotateCcw, MoreHorizontal, Eye, AlertTriangle, FileSignature,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -28,7 +28,8 @@ import { useAuth } from "@/lib/contexts/auth-context"
 import { formatCurrency } from "@/lib/utils/format"
 import { formatHondurasDate, getHondurasTodayISODate } from "@/lib/utils/honduras-time"
 import { exportToXlsx } from "@/lib/utils/export"
-import { generarFacturaPdf } from "@/lib/utils/factura-pdf"
+import { generarFacturaPdf, type FacturaPdfParams } from "@/lib/utils/factura-pdf"
+import { EnviarFirmaDialog } from "@/components/firma/enviar-firma-dialog"
 import { getRazonSocialForPdf } from "@/lib/services/ventas"
 import { getClientes, type Cliente } from "@/lib/services/catalogos"
 import {
@@ -56,6 +57,8 @@ export default function CotizacionesPage() {
   const { hasModulo } = useAuth()
   const puedeFacturar = hasModulo("Nueva Venta")
   const puedeOT = hasModulo("Ordenes de Produccion")
+  const puedeFirma = hasModulo("Firma Digital")
+  const [firmaDe, setFirmaDe] = React.useState<CotizacionEncabezado | null>(null)
   const hoy = getHondurasTodayISODate()
 
   const [loading, setLoading] = React.useState(true)
@@ -194,14 +197,30 @@ export default function CotizacionesPage() {
 
   async function descargarPdf(c: CotizacionEncabezado) {
     setOcupado(c.id)
-    const [{ data }, razonSocial] = await Promise.all([getCotizacion(c.id), getRazonSocialForPdf()])
+    const params = await construirPdfParams(c)
     setOcupado(null)
-    if (!data) {
+    if (!params) {
       toast({ title: "No se pudo generar el PDF", variant: "destructive" })
       return
     }
+    const { ok } = await generarFacturaPdf(params)
+    if (!ok) toast({ title: "No se pudo generar el PDF", variant: "destructive" })
+  }
+
+  /** PDF de la cotización como blob (firma digital). */
+  async function pdfBlobCotizacion(c: CotizacionEncabezado): Promise<Blob> {
+    const params = await construirPdfParams(c)
+    if (!params) throw new Error("No se pudo leer la cotización")
+    const r = await generarFacturaPdf({ ...params, salida: "blob" })
+    if (!r.ok || !r.blob) throw new Error(r.error || "No se pudo generar el PDF")
+    return r.blob
+  }
+
+  async function construirPdfParams(c: CotizacionEncabezado): Promise<FacturaPdfParams | null> {
+    const [{ data }, razonSocial] = await Promise.all([getCotizacion(c.id), getRazonSocialForPdf()])
+    if (!data) return null
     const e = data.encabezado
-    const { ok } = await generarFacturaPdf({
+    return {
       tipo: "cotizacion",
       empresa: razonSocial,
       numeroDocumento: e.numero,
@@ -221,8 +240,7 @@ export default function CotizacionesPage() {
       total: e.total,
       vigenciaHasta: e.vigencia_hasta,
       condiciones: e.condiciones,
-    })
-    if (!ok) toast({ title: "No se pudo generar el PDF", variant: "destructive" })
+    }
   }
 
   function exportar() {
@@ -394,6 +412,11 @@ export default function CotizacionesPage() {
                                       <ShoppingCart className="h-4 w-4 mr-2" /> Facturar (Nueva Venta)
                                     </DropdownMenuItem>
                                   )}
+                                  {puedeFirma && c.estado !== "Rechazada" && c.estado !== "Vencida" && (
+                                    <DropdownMenuItem onClick={() => setFirmaDe(c)}>
+                                      <FileSignature className="h-4 w-4 mr-2" /> Enviar a firma
+                                    </DropdownMenuItem>
+                                  )}
                                   {puedeOT && (c.estado === "Aprobada" || c.estado === "Facturada" || c.estado === "Enviada") && (
                                     <DropdownMenuItem onClick={() => crearOT(c)} disabled={c.orden_id != null}>
                                       <Wrench className="h-4 w-4 mr-2" /> {c.orden_id ? `OT creada (${codigoOrden(c.orden_id, "Trabajo")})` : "Crear orden de trabajo"}
@@ -473,6 +496,19 @@ export default function CotizacionesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Firma digital */}
+      {firmaDe && (
+        <EnviarFirmaDialog
+          open={firmaDe !== null}
+          onOpenChange={(o) => { if (!o) setFirmaDe(null) }}
+          entidad="cotizacion"
+          entidadId={firmaDe.id}
+          titulo={`Cotización ${firmaDe.numero} · ${firmaDe.cliente_nombre || "Cliente"}`}
+          generarPdf={() => pdfBlobCotizacion(firmaDe)}
+          firmantesSugeridos={[{ nombre: firmaDe.cliente_nombre || "", correo: "", rol: "externo" }]}
+        />
+      )}
 
       {/* Reactivar vencida */}
       <Dialog open={reactivando !== null} onOpenChange={(o) => { if (!o) setReactivando(null) }}>

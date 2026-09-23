@@ -639,6 +639,19 @@ Categoría nueva "CRM" en el sidebar (`Categoria`/`CATEGORIAS_ORDEN`). Requiere 
 
 ---
 
+## Officemart — firma digital (script officemart-017)
+
+Firma electrónica simple (Decreto 149-2013), no certificada.
+
+- **`documentos_firmados`**: `folio` UNIQUE global (`FD-<tenant>-<AAAAMMDD>-<6>`), `entidad` (cotizacion|orden_trabajo|recibo|estado_cuenta|rrhh|otro) + `entidad_id`, `titulo`, `hash_sha256` del PDF original, `pdf_original_path`, `pdf_firmado_path` + `hash_firmado_sha256` (se llenan al firmar todos), `estado` Pendiente|Firmado|Anulado|Vencido, `vence_en`, `mensaje`, `firmado_at`, `anulado_at`, `motivo_anulacion`.
+- **`documentos_firmas`**: por firmante: `orden`, `nombre`, `correo`, `rol` interno|externo, `token` UNIQUE (64 hex = autorización del link `/firmar/<token>`), `metodo` canvas|clic, `firmado_en`, `ip`, `user_agent`, `firma_png_path`, `nombre_firmante`, `enviado_at`, `visto_at` (`otp`/`otp_vence` reservados).
+- **Storage**: bucket privado `documentos` (`INSERT INTO storage.buckets … ON CONFLICT DO NOTHING`) y políticas `officemart_documentos_{select,insert,delete}` sobre `storage.objects` limitadas a `officemart/firmas/<razon_social_id>/…` (tercer nivel de `storage.foldername(name)` = `app_current_tenant()`). Las rutas públicas usan service role + `createSignedUrl` (10 min).
+- RLS `<tabla>_tenant`; módulo "Firma Digital" (categoría Ventas, `/documentos/firmas`).
+
+Código: `lib/services/firma-digital.ts` (puras `generarToken`, `generarFolio`, `sha256Hex`, `rutaDocumento`, `resumenFirmas`, `estaVencido`/`estadoVisible`, `validarFirmantes`; I/O `solicitarFirma` (sube PDF con la sesión del usuario → inserta doc + firmas), `getDocumentosFirmados`, `anularDocumentoFirma`, `urlDescargaDocumento`, `enviarCorreoFirma`); `lib/server/correo.ts` (Resend por REST; `RESEND_API_KEY`/`RESEND_FROM`; sin ellas la app ofrece copiar el link); `lib/server/firma-estampar.ts` (pdf-lib: pie folio+hash+URL en cada página y hoja de firmas al final); rutas `app/api/firma/[token]` (GET datos + URL firmada; POST firma + estampado cuando todos firmaron), `app/api/firma/enviar` (sesión; correo), `app/api/verificar/[folio]` (público); páginas públicas `app/firmar/[token]`, `app/verificar/[folio]` (comprueba el SHA-256 del PDF subido); `components/firma/enviar-firma-dialog.tsx` reutilizable (Cotizaciones y Estado de cuenta ya lo usan; `generarFacturaPdf` acepta `salida: "blob"`).
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

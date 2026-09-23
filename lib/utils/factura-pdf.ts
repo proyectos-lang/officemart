@@ -87,11 +87,13 @@ export interface FacturaPdfParams {
   /** Venta ANULADA (script officemart-003): sello rojo en el documento. */
   anulada?: boolean
   motivoAnulacion?: string | null
+  /** "descargar" (default) dispara la descarga; "blob" devuelve el PDF (firma digital, adjuntos). */
+  salida?: "descargar" | "blob"
 }
 
 export async function generarFacturaPdf(
   params: FacturaPdfParams
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; blob?: Blob; filename?: string }> {
   const {
     tipo = "venta",
     empresa,
@@ -402,6 +404,7 @@ export async function generarFacturaPdf(
   const filename = base.toLowerCase().endsWith(".pdf") ? base : `${base}.pdf`
   try {
     const pdfBlob = doc.output("blob")
+    if (params.salida === "blob") return { ok: true, blob: pdfBlob, filename }
     const blobUrl = URL.createObjectURL(pdfBlob)
     const link = document.createElement("a")
     link.href = blobUrl

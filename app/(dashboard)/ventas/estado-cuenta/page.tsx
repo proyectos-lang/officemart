@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import { useSearchParams } from "next/navigation"
-import { ClipboardList, ChevronsUpDown, Check, Download, FileDown, Loader2, AlertTriangle } from "lucide-react"
+import { ClipboardList, ChevronsUpDown, Check, Download, FileDown, Loader2, AlertTriangle, FileSignature } from "lucide-react"
+import { EnviarFirmaDialog } from "@/components/firma/enviar-firma-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -34,7 +35,9 @@ function EstadoCuentaInner() {
   const params = useSearchParams()
   const { toast } = useToast()
   const { ready, razonSocialId } = useTenant()
-  const { user } = useAuth()
+  const { user, hasModulo } = useAuth()
+  const puedeFirma = hasModulo("Firma Digital")
+  const [firmaOpen, setFirmaOpen] = React.useState(false)
   const hoy = getHondurasTodayISODate()
 
   const [clientes, setClientes] = React.useState<Cliente[]>([])
@@ -89,8 +92,8 @@ function EstadoCuentaInner() {
     )
   }
 
-  async function descargarPdf() {
-    if (!estado || !cliente) return
+  async function descargarPdf(salida: "descargar" | "blob" = "descargar"): Promise<Blob | null> {
+    if (!estado || !cliente) return null
     setGenerandoPdf(true)
     try {
       const [{ jsPDF }, autoTableMod, empresa] = await Promise.all([import("jspdf"), import("jspdf-autotable"), getRazonSocialForPdf()])
@@ -157,10 +160,13 @@ function EstadoCuentaInner() {
       }
       doc.setFontSize(7); doc.setTextColor(168, 162, 158)
       doc.text("Generado por EasyCount", w / 2, doc.internal.pageSize.getHeight() - 8, { align: "center" })
+      if (salida === "blob") return doc.output("blob")
       doc.save(`Estado_cuenta_${cliente.nombre.replace(/\s+/g, "_")}.pdf`)
+      return null
     } catch (err) {
       console.error(err)
       toast({ title: "No se pudo generar el PDF", variant: "destructive" })
+      return null
     } finally {
       setGenerandoPdf(false)
     }
@@ -182,7 +188,23 @@ function EstadoCuentaInner() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={exportar} disabled={!estado} className="gap-1"><Download className="h-4 w-4" /> Excel</Button>
-          <Button size="sm" onClick={descargarPdf} disabled={!estado || generandoPdf} className="gap-1">
+          {puedeFirma && cliente && (
+            <Button size="sm" variant="outline" onClick={() => setFirmaOpen(true)} disabled={!estado || generandoPdf} className="gap-1">
+              <FileSignature className="h-4 w-4" /> Enviar a firma
+            </Button>
+          )}
+          {puedeFirma && cliente && estado && (
+            <EnviarFirmaDialog
+              open={firmaOpen}
+              onOpenChange={setFirmaOpen}
+              entidad="estado_cuenta"
+              entidadId={cliente.id ?? null}
+              titulo={`Estado de cuenta · ${cliente.nombre} · ${formatHondurasDate(hoy)}`}
+              generarPdf={async () => { const b = await descargarPdf("blob"); if (!b) throw new Error("No se pudo generar el PDF"); return b }}
+              firmantesSugeridos={[{ nombre: cliente.nombre, correo: cliente.correo || "", rol: "externo" }]}
+            />
+          )}
+          <Button size="sm" onClick={() => descargarPdf()} disabled={!estado || generandoPdf} className="gap-1">
             {generandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} PDF
           </Button>
         </div>
