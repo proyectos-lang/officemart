@@ -652,6 +652,22 @@ Código: `lib/services/firma-digital.ts` (puras `generarToken`, `generarFolio`, 
 
 ---
 
+## Officemart — RRHH y nómina (script officemart-018)
+
+Categoría nueva "RRHH" (5 módulos: Empleados, Asistencia, Novedades, Nómina, Parámetros RRHH). Archivos de empleados en el bucket privado `documentos` bajo `officemart/rrhh/<tenant>/<empleado>/…` (las políticas de 017 cubren la carpeta).
+
+- **`empleados`**: ficha (`codigo`, `nombre`, `identidad`, `rtn`, `fecha_nacimiento`, contacto, `puesto`, `departamento`, `fecha_ingreso`/`fecha_salida`, `tipo_contrato`, `salario_mensual`, `frecuencia_pago` Mensual|Quincenal, `forma_pago`, `banco`, `cuenta_bancaria`, `usuario_id` uuid = `usuarios.id` para marcar, `vendedor_id`, `ihss_afiliacion`, `rap_afiliacion`, `aplica_ihss/rap/isr`, `estado` Activo|Inactivo).
+- **`empleados_documentos`**: `tipo` (Identidad|Contrato|Certificado|Medico|Otro), `nombre`, `archivo_path`, `vence_en` (aviso 30 días).
+- **`rrhh_marcaciones`**: una fila por `(empleado_id, fecha)` UNIQUE con `entrada`/`salida` (HN-as-UTC), `horas`, `origen` app|manual|import.
+- **`rrhh_novedades`**: `tipo` (ver `TIPOS_NOVEDAD` en `rrhh.ts`: horas extra diurna/mixta/nocturna, Bono, Comision, Aguinaldo, Otro ingreso, Vacaciones, Permiso con/sin goce, Incapacidad, Ausencia, Deduccion, Anticipo, Prestamo), `fecha`, `cantidad` (horas/días) o `monto`, `gravable` (ISR), `cotizable` (IHSS/RAP), `nomina_id` cuando se aplica.
+- **`rrhh_parametros`**: `(razon_social_id, vigente_desde)` UNIQUE, `parametros` jsonb (ver `ParametrosNomina` en `nomina.ts`; se normaliza con defaults 2026).
+- **`rrhh_nominas`** (`tipo`, `periodo_desde/hasta`, `fecha_pago`, `estado` Borrador|Aprobada|Pagada|Anulada, totales, `parametros_id`, `gasto_id`) + **`rrhh_nominas_detalle`** (por empleado: salario_periodo, horas_extra, otros_ingresos, total_devengado, ihss_empleado, rap_empleado, isr, otras_deducciones, total_deducciones, neto, ihss_patronal, rap_patronal, `lineas` jsonb).
+- RLS `<tabla>_tenant` en las 7 tablas.
+
+Código: `lib/services/rrhh.ts` (CRUD + puras `calcularHoras`, `documentosPorVencer`, `antiguedadAnios`, `diasVacacionesPorAntiguedad`, `mapearMarcacionesImportadas`, `resolverEmpleado`), `lib/services/nomina.ts` (puras `calcularIHSS`, `calcularRAP`, `calcularISRAnual`, `calcularISRMensual` (regular ×12, extras a tasa marginal), `calcularHorasExtra`, `calcularNominaEmpleado`, `totalesNomina`, `calcularAguinaldoProporcional`, `empleadosDelPeriodo`; I/O `generarNomina` (evita duplicar período vigente; liga novedades), `recalcularNomina`, `aprobarNomina`, `pagarNomina` → gastos "Sueldos y salarios" (neto, pagado) y "Cargas sociales y retenciones" (pendiente), `anularNomina` (libera novedades), `planillaRows`). Parámetros 2026 de referencia en `PARAMETROS_2026` (IHSS techo 11,903.13; RAP piso 11,903.13 / techo 57,896.16; ISR exento 228,324.32).
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

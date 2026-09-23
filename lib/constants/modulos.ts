@@ -57,6 +57,9 @@ import {
   CalendarCheck,
   Target,
   FileSignature,
+  Clock,
+  ListPlus,
+  SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react"
 
@@ -68,6 +71,7 @@ export type Categoria =
   | "Produccion"
   | "Finanzas"
   | "CRM"
+  | "RRHH"
   | "Configuracion"
 
 export interface ModuloGranular {
@@ -89,14 +93,14 @@ export interface ModuloGranular {
 }
 
 /**
- * 65 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 70 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
  * Facturación", "Cotizaciones", "Estado de Cuenta", "Reportes de Ventas",
  * "Trazabilidad", "Backorder", "Reportes de Compras", "Reposición",
  * "Comisiones", "Consignación", "Toma Física", "Conciliación Bancaria",
- * "Balance", "CRM Pipeline", "CRM Agenda", "CRM Reportes", "Firma Digital"
- * y TODOS los de la
+ * "Balance", "CRM Pipeline", "CRM Agenda", "CRM Reportes", "Firma Digital",
+ * los 5 de RRHH y TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -230,6 +234,13 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // NUEVO (no-base, officemart-017): bandeja de documentos enviados a firma
   // electrónica (cotizaciones, estados de cuenta, …).
   { nombre: "Firma Digital", href: "/documentos/firmas", categoria: "Ventas", icon: FileSignature },
+
+  // ---- RRHH (NUEVO, no-base, officemart-018) ----
+  { nombre: "Empleados", href: "/rrhh/empleados", categoria: "RRHH", icon: Users },
+  { nombre: "Asistencia", href: "/rrhh/asistencia", categoria: "RRHH", icon: Clock },
+  { nombre: "Novedades", href: "/rrhh/novedades", categoria: "RRHH", icon: ListPlus },
+  { nombre: "Nómina", href: "/rrhh/nomina", categoria: "RRHH", icon: Banknote },
+  { nombre: "Parámetros RRHH", href: "/rrhh/parametros", categoria: "RRHH", icon: SlidersHorizontal },
   {
     nombre: "Consolidacion Bancaria",
     href: "/finanzas/consolidacion",
@@ -328,6 +339,7 @@ export const CATEGORIAS_ORDEN: ReadonlyArray<Categoria> = [
   "Produccion",
   "Finanzas",
   "CRM",
+  "RRHH",
   "Configuracion",
 ]
 

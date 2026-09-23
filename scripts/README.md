@@ -30,6 +30,7 @@ Officemart: su estructura ya viene clonada.
 | O-015 | `officemart-015-balance.sql` | Módulo **Balance** (balance operativo; sin tablas: se calcula desde caja, bancos, CxC, inventario, anticipos, CxP, comisiones y consignación). Requiere O-000 |
 | O-016 | `officemart-016-crm.sql` | **CRM**: `crm_etapas`, `crm_contactos`, `crm_oportunidades`, `crm_actividades` (RLS) y módulos **CRM Pipeline / CRM Agenda / CRM Reportes**. Requiere O-002 (vendedores) |
 | O-017 | `officemart-017-firma-digital.sql` | **Firma digital**: `documentos_firmados`, `documentos_firmas` (RLS), bucket privado `documentos` + políticas de `storage.objects` por carpeta de empresa, módulo **Firma Digital**. Correo opcional con `RESEND_API_KEY`/`RESEND_FROM`. Requiere O-000 |
+| O-018 | `officemart-018-rrhh.sql` | **RRHH y nómina**: `empleados`, `empleados_documentos`, `rrhh_marcaciones`, `rrhh_novedades`, `rrhh_parametros`, `rrhh_nominas`, `rrhh_nominas_detalle` (RLS) y módulos **Empleados / Asistencia / Novedades / Nómina / Parámetros RRHH**. Requiere O-017 (bucket `documentos`) |
 
 Scripts nuevos de Officemart: `officemart-NNN-*.sql`, con objetos calificados
 `officemart.` Si llega un script 0NN nuevo desde EasyCount que haga falta
