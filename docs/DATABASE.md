@@ -619,6 +619,12 @@ Extracto `cuenta_id, periodo_desde, periodo_hasta, archivo_nombre, saldo_inicial
 
 ---
 
+## Officemart — balance operativo (script officemart-015, sin tablas)
+
+`lib/services/balance.ts`: `getBalanceOperativo()` arma con la pura `armarBalance(fecha, activos, pasivos)` los activos (caja abierta, bancos, CxC vigentes, inventario propio = valoración − consignado, materiales, anticipos = `compras_encabezado.monto_pagado − total_recibido_local` > 0) y pasivos (CxP gastos, CxP OC, `comisiones_liquidaciones` Aprobadas, consignación por liquidar); patrimonio = activos − pasivos; liquidez = caja + bancos − CxP exigibles. Cada partida degrada a 0 con nota si su script no está. Página `finanzas/balance` (módulo "Balance"; Excel y PDF).
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

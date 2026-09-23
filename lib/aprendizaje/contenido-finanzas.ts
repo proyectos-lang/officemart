@@ -472,4 +472,27 @@ export const TUTORIALES_FINANZAS: TutorialModulo[] = [
     ],
     keywords: ["conciliacion", "conciliar", "extracto", "estado de cuenta banco", "parear", "banco vs libro", "en transito", "comision bancaria", "cargos bancarios", "cerrar mes banco", "reabrir conciliacion"],
   },
+  {
+    modulo: "Balance",
+    titulo: "Balance operativo",
+    descripcion:
+      "Foto de gestión a hoy: lo que tienes (caja, bancos, cartera, inventario, anticipos) contra lo que debes (CxP de gastos y compras, comisiones, consignación), con patrimonio operativo y liquidez. No es contabilidad de partida doble.",
+    queHace: [
+      "Activos: caja chica de la sesión abierta, saldo de cada banco, cuentas por cobrar de facturas vigentes, inventario propio a costo promedio (excluye lo consignado), materiales de producción y anticipos a proveedores (órdenes pagadas y aún no recibidas).",
+      "Pasivos: cuentas por pagar de gastos, órdenes de compra a crédito (recibido − pagado), comisiones aprobadas sin pagar y consignación por liquidar.",
+      "Patrimonio operativo = activos − pasivos; liquidez inmediata = caja + bancos − CxP exigibles. Cada partida indica si su módulo/script aún no está activo (queda en 0).",
+      "Exporta a Excel y PDF con el encabezado de la empresa.",
+    ],
+    queNoHace: [
+      "No incluye activos fijos, préstamos, impuestos por pagar ni depreciaciones: es un balance de gestión, no los estados financieros formales (eso lo prepara tu contador).",
+      "No guarda históricos: se calcula al abrir. Exporta el PDF si necesitas la foto de una fecha.",
+    ],
+    operaciones: [
+      { titulo: "Revisar la salud financiera del mes", pasos: ["Finanzas → Balance.", "Revisa liquidez inmediata (¿alcanza caja + bancos para lo exigible?) y el patrimonio operativo.", "Baja a las partidas para ver el detalle (bancos por cuenta, facturas con saldo) y exporta el PDF para la reunión."] },
+    ],
+    faqs: [
+      { pregunta: "¿Por qué el inventario no coincide con Valoración?", respuesta: "Aquí se resta la mercancía en consignación (no es tuya hasta que la liquides) y se suman los materiales de producción aparte." },
+    ],
+    keywords: ["balance", "balance operativo", "activos", "pasivos", "patrimonio", "liquidez", "capital de trabajo", "situacion financiera", "cuanto tengo", "cuanto debo"],
+  },
 ]

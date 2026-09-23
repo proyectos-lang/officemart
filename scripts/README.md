@@ -27,6 +27,7 @@ Officemart: su estructura ya viene clonada.
 | O-012 | `officemart-012-consignacion.sql` | **Consignación**: `localizaciones_config.tipo/propietario_proveedor_id` (localización de mercancía de un proveedor) y `consignacion_liquidaciones` (+ detalle por movimiento de venta liquidado, `compra_id` de la OC a crédito generada). Registra el módulo **Consignación**. Requiere O-008 |
 | O-013 | `officemart-013-toma-fisica.sql` | **Toma física**: `tomas_fisicas` (+ detalle con foto del stock por localización, conteo, diferencia, costo), RPC `inventario_congelado(almacen)` y trigger `BEFORE INSERT` en `transacciones_inventario` que bloquea movimientos de un almacén con toma Abierta (`INVENTARIO_CONGELADO`). Registra el módulo **Toma Física**. Requiere O-001 |
 | O-014 | `officemart-014-conciliacion.sql` | **Conciliación bancaria**: `bancos_formatos_extracto` (mapeo de columnas por cuenta), `bancos_extractos` (período, saldos, estado Abierto/Conciliado, resumen) y `bancos_extracto_lineas` (línea del banco, movimiento pareado, estado, método). Registra el módulo **Conciliación Bancaria**. Requiere O-001 |
+| O-015 | `officemart-015-balance.sql` | Módulo **Balance** (balance operativo; sin tablas: se calcula desde caja, bancos, CxC, inventario, anticipos, CxP, comisiones y consignación). Requiere O-000 |
 
 Scripts nuevos de Officemart: `officemart-NNN-*.sql`, con objetos calificados
 `officemart.` Si llega un script 0NN nuevo desde EasyCount que haga falta
