@@ -36,6 +36,10 @@ export interface CuentaMovimiento {
   ref_id?: number
   saldo_resultante?: number
   usuario?: string
+  /** Nº de transferencia/cheque/autorización (script officemart-001). Sirve para el pareo bancario. */
+  referencia?: string | null
+  /** Fecha en que la conciliación bancaria pareó este movimiento con el extracto (null = sin conciliar). */
+  conciliado_at?: string | null
 }
 
 /**
@@ -264,6 +268,15 @@ export async function registrarMovimientoCuenta(input: {
   concepto?: string
   ref_tipo?: string
   ref_id?: number
+  /**
+   * Fecha del movimiento en ISO HN-as-UTC (ver getHondurasNowISO). Si se omite
+   * es AHORA. Se usa para asientos con fecha pasada (línea del extracto en la
+   * conciliación, saldos iniciales). No puede ser futura ni caer dentro de un
+   * período ya conciliado de la cuenta.
+   */
+  fecha?: string
+  /** Nº de transferencia/cheque/autorización: mejora el pareo bancario. */
+  referencia?: string | null
 }): Promise<{ data: CuentaMovimiento | null; error: string | null }> {
   if (!isSupabaseConfigured()) {
     return { data: null, error: "Cliente no disponible" }
@@ -275,6 +288,16 @@ export async function registrarMovimientoCuenta(input: {
   const stamp = await getTenantStamp(supabase)
   if (!isValidStamp(stamp)) {
     return { data: null, error: SESION_INVALIDA_ERROR }
+  }
+
+  // 0. Fecha explícita: validarla antes de tocar nada.
+  const ahora = getHondurasNowISO()
+  const fechaExplicita = (input.fecha || "").trim() || null
+  if (fechaExplicita) {
+    const invalida = validarFechaMovimiento(fechaExplicita, ahora)
+    if (invalida) return { data: null, error: invalida }
+    const cerrado = await fechaEnPeriodoConciliado(supabase, input.cuenta_id, fechaExplicita)
+    if (cerrado) return { data: null, error: cerrado }
   }
 
   // 1. Saldo actual
@@ -295,23 +318,34 @@ export async function registrarMovimientoCuenta(input: {
   const saldoResultante = +(saldoActual + delta).toFixed(2)
 
   // 2. INSERT movimiento
-  const { data: mov, error: mErr } = await supabase
+  const fila: Record<string, unknown> = {
+    cuenta_id: input.cuenta_id,
+    tipo: input.tipo,
+    monto: input.monto,
+    concepto: input.concepto,
+    ref_tipo: input.ref_tipo,
+    ref_id: input.ref_id,
+    saldo_resultante: saldoResultante,
+    // Fecha HN-as-UTC (dia de negocio): Movimientos/Consolidacion la muestran
+    // con .split('T')[0]/.slice(0,10) y cierre-diario la filtra por dia HN.
+    fecha: fechaExplicita ?? ahora,
+    ...stamp,
+  }
+  const referencia = (input.referencia || "").trim()
+  if (referencia) fila.referencia = referencia
+
+  let { data: mov, error: mErr } = await supabase
     .from("cuenta_movimientos")
-    .insert({
-      cuenta_id: input.cuenta_id,
-      tipo: input.tipo,
-      monto: input.monto,
-      concepto: input.concepto,
-      ref_tipo: input.ref_tipo,
-      ref_id: input.ref_id,
-      saldo_resultante: saldoResultante,
-      // Fecha HN-as-UTC (dia de negocio): Movimientos/Consolidacion la muestran
-      // con .split('T')[0]/.slice(0,10) y cierre-diario la filtra por dia HN.
-      fecha: getHondurasNowISO(),
-      ...stamp,
-    })
+    .insert(fila)
     .select()
     .single()
+  if (mErr && referencia && /referencia/i.test(mErr.message || "")) {
+    // Columna `referencia` pendiente (script officemart-001): reintentar sin ella.
+    delete fila.referencia
+    const retry = await supabase.from("cuenta_movimientos").insert(fila).select().single()
+    mov = retry.data
+    mErr = retry.error
+  }
   if (mErr) {
     if (isMissingTableError(mErr)) {
       return { data: null, error: CUENTAS_FEATURE_PENDING }
@@ -319,17 +353,62 @@ export async function registrarMovimientoCuenta(input: {
     return { data: null, error: mErr.message }
   }
 
-  // 3. UPDATE saldo cacheado. Si falla, el movimiento ya quedo insertado; en vez
-  // de dejar el cache desviado en silencio, lo reconciliamos desde la suma real.
-  const { error: saldoErr } = await supabase
-    .from("cuentas_config")
-    .update({ saldo: saldoResultante })
-    .eq("id", input.cuenta_id)
-  if (saldoErr) {
+  // 3. Con fecha pasada, el `saldo_resultante` recién escrito (cache + delta)
+  // no es el cronológico: se reescribe toda la cadena por (fecha, id), que
+  // además deja el cache al día. Sin fecha explícita, basta actualizar el
+  // cache; si eso falla, reconciliamos desde la suma real.
+  if (fechaExplicita) {
     await recalcCadenaSaldoCuenta(input.cuenta_id)
+  } else {
+    const { error: saldoErr } = await supabase
+      .from("cuentas_config")
+      .update({ saldo: saldoResultante })
+      .eq("id", input.cuenta_id)
+    if (saldoErr) {
+      await recalcCadenaSaldoCuenta(input.cuenta_id)
+    }
   }
 
   return { data: mov as CuentaMovimiento, error: null }
+}
+
+/**
+ * Valida una fecha explícita de movimiento (función pura). Debe ser ISO
+ * parseable y no posterior a `ahora` (ambas en la misma convención HN-as-UTC).
+ * Devuelve el mensaje de error o null si es válida.
+ */
+export function validarFechaMovimiento(fecha: string, ahora: string): string | null {
+  const t = Date.parse(fecha)
+  if (Number.isNaN(t)) return "La fecha del movimiento no es válida"
+  // Tolerancia de 1 minuto por desfase de reloj entre cliente y servidor.
+  if (t > Date.parse(ahora) + 60_000) return "La fecha del movimiento no puede ser futura"
+  return null
+}
+
+/**
+ * Si la cuenta tiene una conciliación bancaria CERRADA cuyo período cubre la
+ * fecha, devuelve el mensaje de bloqueo. Sin tabla de extractos (módulo
+ * pendiente) no bloquea.
+ */
+async function fechaEnPeriodoConciliado(
+  supabase: NonNullable<ReturnType<typeof createClient>>,
+  cuentaId: number,
+  fechaISO: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("bancos_extractos")
+    .select("periodo_hasta")
+    .eq("cuenta_id", cuentaId)
+    .eq("estado", "Conciliado")
+    .order("periodo_hasta", { ascending: false })
+    .limit(1)
+  if (error || !data || data.length === 0) return null
+  const hasta = String(data[0].periodo_hasta || "")
+  if (!hasta) return null
+  if (fechaISO.slice(0, 10) <= hasta) {
+    return `La cuenta ya está conciliada hasta el ${hasta}. Usa una fecha posterior o reabre la conciliación.`
+  }
+  return null
 }
 
 /**
@@ -374,16 +453,52 @@ export async function recalcSaldoCuenta(
   return { saldoAnterior, saldoRecalculado, error: null }
 }
 
+/** Fila mínima para recalcular la cadena de saldos (función pura abajo). */
+export interface MovimientoCadena {
+  id: number
+  fecha?: string | null
+  tipo: "Ingreso" | "Egreso" | string
+  monto: number | null
+  saldo_resultante?: number | null
+}
+
 /**
- * Recalcula la CADENA de saldos de una cuenta: recorre sus movimientos por `id`
- * (orden de insercion) sumando Ingresos - Egresos y reescribe el
- * `saldo_resultante` de cada uno que haya quedado desfasado, y actualiza el
- * cache `cuentas_config.saldo` al saldo final.
+ * Recalcula la cadena `saldo_resultante` en orden CRONOLÓGICO (fecha, id) —
+ * función pura. Devuelve solo las filas cuyo saldo guardado difiere del
+ * recalculado (para escribir lo mínimo) y el saldo final de la cuenta.
+ */
+export function recalcularCadena(movs: MovimientoCadena[]): {
+  cambios: { id: number; saldo_resultante: number }[]
+  saldoFinal: number
+} {
+  const ordenados = [...movs].sort((a, b) => {
+    const fa = a.fecha || ""
+    const fb = b.fecha || ""
+    if (fa !== fb) return fa < fb ? -1 : 1
+    return a.id - b.id
+  })
+  const cambios: { id: number; saldo_resultante: number }[] = []
+  let acc = 0
+  for (const m of ordenados) {
+    const delta = m.tipo === "Ingreso" ? Number(m.monto || 0) : -Number(m.monto || 0)
+    acc = +(acc + delta).toFixed(2)
+    if (Number(m.saldo_resultante ?? 0) !== acc) cambios.push({ id: m.id, saldo_resultante: acc })
+  }
+  return { cambios, saldoFinal: acc }
+}
+
+/**
+ * Recalcula la CADENA de saldos de una cuenta: recorre sus movimientos por
+ * (fecha, id) — orden cronológico, porque un movimiento puede registrarse con
+ * fecha pasada (conciliación, saldos iniciales) — sumando Ingresos - Egresos,
+ * reescribe el `saldo_resultante` de cada uno que haya quedado desfasado y
+ * actualiza el cache `cuentas_config.saldo` al saldo final.
  *
  * Se usa tras BORRAR movimientos (p. ej. al eliminar/editar una venta pagada
- * por banco): el `saldo_resultante` es una foto que queda obsoleta al borrar un
- * movimiento intermedio. Asi la lista de Movimientos y el saldo quedan con
- * datos REALES sin depender de valores viejos.
+ * por banco) o tras INSERTAR uno con fecha pasada: el `saldo_resultante` es
+ * una foto que queda obsoleta. Asi la lista de Movimientos y el saldo quedan
+ * con datos REALES sin depender de valores viejos. Mismo criterio que el
+ * trigger `tg_limpiar_tesoreria_ref` (scripts/officemart-001).
  */
 export async function recalcCadenaSaldoCuenta(
   cuenta_id: number
@@ -393,21 +508,21 @@ export async function recalcCadenaSaldoCuenta(
 
   const { data: movs, error } = await supabase
     .from("cuenta_movimientos")
-    .select("id, tipo, monto, saldo_resultante")
+    .select("id, fecha, tipo, monto, saldo_resultante")
     .eq("cuenta_id", cuenta_id)
+    .order("fecha", { ascending: true })
     .order("id", { ascending: true })
   if (error) return { saldoFinal: 0, error: error.message }
 
-  let acc = 0
-  for (const m of movs || []) {
-    const delta = m.tipo === "Ingreso" ? Number(m.monto || 0) : -Number(m.monto || 0)
-    acc = +(acc + delta).toFixed(2)
-    if (Number(m.saldo_resultante ?? 0) !== acc) {
-      await supabase.from("cuenta_movimientos").update({ saldo_resultante: acc }).eq("id", m.id)
-    }
+  const { cambios, saldoFinal } = recalcularCadena((movs || []) as MovimientoCadena[])
+  for (const c of cambios) {
+    await supabase
+      .from("cuenta_movimientos")
+      .update({ saldo_resultante: c.saldo_resultante })
+      .eq("id", c.id)
   }
-  await supabase.from("cuentas_config").update({ saldo: acc }).eq("id", cuenta_id)
-  return { saldoFinal: acc, error: null }
+  await supabase.from("cuentas_config").update({ saldo: saldoFinal }).eq("id", cuenta_id)
+  return { saldoFinal, error: null }
 }
 
 export async function getMovimientosCuenta(
@@ -425,8 +540,11 @@ export async function getMovimientosCuenta(
   if (desde) query = query.gte("fecha", `${desde}T00:00:00`)
   if (hasta) query = query.lte("fecha", `${hasta}T23:59:59`)
 
+  // (fecha, id) desc: con movimientos de fecha pasada, el orden de inserción ya
+  // no coincide con el cronológico y `saldo_resultante` debe leerse en cadena.
   const { data, error } = await query
     .order("fecha", { ascending: false })
+    .order("id", { ascending: false })
     .limit(limit)
 
   if (error) return { data: [], error: error.message }
@@ -464,6 +582,7 @@ export async function getMovimientosTodasLasCuentas(
 
   const { data, error } = await query
     .order("fecha", { ascending: false })
+    .order("id", { ascending: false })
     .limit(limit)
 
   if (error) {

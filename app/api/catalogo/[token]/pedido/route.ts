@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { emitirCorrelativo, SERIES } from "@/lib/services/correlativos"
 
 export const runtime = "nodejs"
 
@@ -125,12 +126,21 @@ export async function POST(
   }
   const total = +lineas.reduce((a, l) => a + l.subtotal, 0).toFixed(2)
 
-  // 4) Correlativo PED-#### del tenant.
-  const { count } = await supabase
-    .from("pedidos_encabezado")
-    .select("*", { count: "exact", head: true })
-    .eq("razon_social_id", link.razon_social_id)
-  const numeroPedido = `PED-${((count || 0) + 1).toString().padStart(4, "0")}`
+  // 4) Correlativo PED-#### del tenant: atómico (RPC officemart-001, con el
+  //    tenant del LINK porque aquí no hay sesión). Sin el script, COUNT+1.
+  let numeroPedido: string
+  const emitido = await emitirCorrelativo(supabase, SERIES.PEDIDO, "PED-", 4, {
+    razonSocialId: link.razon_social_id,
+  })
+  if (emitido.numero) {
+    numeroPedido = emitido.numero
+  } else {
+    const { count } = await supabase
+      .from("pedidos_encabezado")
+      .select("*", { count: "exact", head: true })
+      .eq("razon_social_id", link.razon_social_id)
+    numeroPedido = `PED-${((count || 0) + 1).toString().padStart(4, "0")}`
+  }
 
   // 5) Insertar pedido + detalle (tenant del LINK, no del request).
   const { data: pedido, error: pedErr } = await supabase

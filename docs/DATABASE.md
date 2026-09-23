@@ -451,6 +451,26 @@ Agregación para la Valoración de Inventario, `security_invoker` (respetan la R
 
 ---
 
+## Officemart — base común (script officemart-001)
+
+Objetos propios del esquema `officemart` (no existen en EasyCount/`public`).
+
+### `auditoria`
+Bitácora genérica de acciones de negocio: `id, razon_social_id, entidad` (`'venta'|'recibo'|'devolucion'|'compra'|'orden'|...`), `entidad_id, accion` (`'crear'|'anular'|'editar'|'pagar'|...`), `motivo, antes (jsonb), despues (jsonb), usuario, created_at`. RLS por tenant **solo SELECT e INSERT**: la app nunca edita ni borra la bitácora. La escribe `registrarAuditoria` (`lib/services/auditoria.ts`) en modo best-effort (si falla, la operación de negocio no se revierte).
+
+### `correlativos`
+Numeración atómica por empresa y serie: `razon_social_id, serie` (PK compuesta; `'DEV'`, `'PED'`, `'RC'`, `'COT'`, `'OT'`, `'venta:<punto>'`…), `ultimo_numero, updated_at`. RLS por tenant.
+- **`siguiente_correlativo(p_serie, p_prefijo='', p_pad=4, p_razon_social_id=NULL)`** → `text` (p.ej. `RC-0007`): `INSERT … ON CONFLICT DO UPDATE … RETURNING` = lock de fila, dos usuarios simultáneos nunca reciben el mismo número. SECURITY INVOKER (la RLS impide emitir para otra empresa); `p_razon_social_id` solo lo usa el service role en rutas públicas (pedido por catálogo). La app la llama vía `emitirCorrelativo` (`lib/services/correlativos.ts`); si el RPC no existe, cada llamador cae a su `COUNT(*)+1` anterior.
+- **`peek_correlativo(...)`** → el número que saldría a continuación (solo lectura).
+
+### Columnas nuevas en tablas existentes (nullable, sin default)
+- `cuenta_movimientos.referencia` (nº de transferencia/cheque, para el pareo bancario), `conciliado_at` (fecha en que la conciliación lo pareó con el extracto), `extracto_linea_id` (línea del extracto). Índice `(cuenta_id, fecha, id)`.
+- `transacciones_inventario.referencia_tipo` (`'venta'|'anulacion_venta'|'devolucion'|'recepcion'|'orden_produccion'|…`): dice a qué documento apunta `referencia_id`. Las filas anteriores quedan NULL y la app sigue infiriendo por `tipo_movimiento`.
+
+> **Cadena de saldos por (fecha, id).** `registrarMovimientoCuenta` acepta `fecha` (pasada, nunca futura ni dentro de un período conciliado) y `referencia`. Por eso `recalcCadenaSaldoCuenta` y el trigger `tg_limpiar_tesoreria_ref` (reemplazado por este script, mismo OID) acumulan `saldo_resultante` en orden cronológico `(fecha, id)` y no por orden de inserción; las lecturas de movimientos ordenan `fecha desc, id desc`.
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

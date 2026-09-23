@@ -4,6 +4,7 @@ import { ajustarStock } from "@/lib/services/stock"
 import { registrarMovimientoCaja } from "@/lib/services/caja-chica"
 import { registrarMovimientoCuenta, recalcCadenaSaldoCuenta } from "@/lib/services/cuentas"
 import { getHondurasNowISO } from "@/lib/utils/honduras-time"
+import { emitirCorrelativo, SERIES } from "@/lib/services/correlativos"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 // ==================== TIPOS ====================
@@ -248,11 +249,18 @@ export async function crearDevolucion(
 
   const montoTotal = +lineas.reduce((a, l) => a + l.cantidad_devuelta * l.precio_unitario, 0).toFixed(2)
 
-  // 3) Correlativo DEV-XXXX.
-  const { count } = await supabase
-    .from("devoluciones_encabezado")
-    .select("*", { count: "exact", head: true })
-  const numeroDevolucion = `DEV-${((count || 0) + 1).toString().padStart(4, "0")}`
+  // 3) Correlativo DEV-XXXX: atómico por empresa (RPC, officemart-001). Si el
+  //    script no está aplicado, cae al COUNT+1 anterior.
+  let numeroDevolucion: string | null = null
+  const emitido = await emitirCorrelativo(supabase, SERIES.DEVOLUCION, "DEV-")
+  if (emitido.numero) {
+    numeroDevolucion = emitido.numero
+  } else {
+    const { count } = await supabase
+      .from("devoluciones_encabezado")
+      .select("*", { count: "exact", head: true })
+    numeroDevolucion = `DEV-${((count || 0) + 1).toString().padStart(4, "0")}`
+  }
 
   // 4) Insertar encabezado.
   const { data: enc, error: encErr } = await supabase
