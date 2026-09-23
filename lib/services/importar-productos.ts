@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx"
 import {
   getProductos, getCategorias, getMarcas, getSubcategorias, getAlmacenes, getLocalizaciones,
-  saveProducto, type Producto,
+  getLineasProducto, saveProducto, type Producto,
 } from "@/lib/services/catalogos"
 import { procesarIngresoManual } from "@/lib/services/inventario"
 
@@ -14,6 +14,8 @@ export interface FilaProductoImport {
   nombre: string
   categoria: string
   marca: string
+  /** Linea de producto (por nombre; opcional, script officemart-002). */
+  linea: string
   talla: string
   precio_venta: number
   costo_unitario: number
@@ -42,6 +44,7 @@ export interface PreviewProductos {
   sinNombre: number // filas sin nombre (invalidas)
   categoriasNoEncontradas: string[]
   marcasNoEncontradas: string[]
+  lineasNoEncontradas: string[]
   valorInventarioInicial: number // Σ cantidad × costo (solo productos nuevos)
   unidadesIniciales: number // Σ cantidad (solo productos nuevos)
   error: string | null
@@ -130,6 +133,7 @@ export async function parsearArchivoProductos(file: File): Promise<FilaProductoI
       nombre,
       categoria: str(col(row, ["Categoria", "Categoría"])),
       marca: str(col(row, ["Marca"])),
+      linea: str(col(row, ["Linea", "Línea", "Linea de Producto", "Línea de Producto"])),
       talla: str(col(row, ["Talla"])),
       precio_venta: num(col(row, ["Precio Venta", "Precio de Venta", "Precio", "Precio Unitario"])),
       costo_unitario: num(col(row, ["Costo Unitario", "Costo", "Costo Unit", "Costo Unit."])),
@@ -146,8 +150,11 @@ async function cargarContexto(): Promise<{
   porNombre: Map<string, Producto>
   catPorNombre: Map<string, number>
   marcaPorNombre: Map<string, number>
+  lineaPorNombre: Map<string, number>
 }> {
-  const [prodRes, catRes, marcaRes] = await Promise.all([getProductos(), getCategorias(), getMarcas()])
+  const [prodRes, catRes, marcaRes, lineaRes] = await Promise.all([
+    getProductos(), getCategorias(), getMarcas(), getLineasProducto(),
+  ])
 
   const porCodigo = new Map<string, Producto>()
   const porNombre = new Map<string, Producto>()
@@ -162,7 +169,10 @@ async function cargarContexto(): Promise<{
   const marcaPorNombre = new Map<string, number>()
   for (const m of marcaRes.data || []) if (m.id != null) marcaPorNombre.set(m.nombre.trim().toLowerCase(), m.id)
 
-  return { porCodigo, porNombre, catPorNombre, marcaPorNombre }
+  const lineaPorNombre = new Map<string, number>()
+  for (const l of lineaRes.data || []) if (l.id != null) lineaPorNombre.set(l.nombre.trim().toLowerCase(), l.id)
+
+  return { porCodigo, porNombre, catPorNombre, marcaPorNombre, lineaPorNombre }
 }
 
 // ==================== PREVIEW ====================
@@ -171,7 +181,7 @@ export async function previsualizarImportProductos(filas: FilaProductoImport[]):
   const vacio: PreviewProductos = {
     total: 0, nuevos: 0, duplicados: [], duplicadosConCantidad: 0,
     unidadesDuplicados: 0, valorDuplicados: 0, sinNombre: 0,
-    categoriasNoEncontradas: [], marcasNoEncontradas: [],
+    categoriasNoEncontradas: [], marcasNoEncontradas: [], lineasNoEncontradas: [],
     valorInventarioInicial: 0, unidadesIniciales: 0, error: null,
   }
   if (filas.length === 0) return { ...vacio, error: "El archivo no tiene filas válidas" }
@@ -180,6 +190,7 @@ export async function previsualizarImportProductos(filas: FilaProductoImport[]):
   const duplicados: string[] = []
   const catNo = new Set<string>()
   const marcaNo = new Set<string>()
+  const lineaNo = new Set<string>()
   const vistosCodigo = new Set<string>()
   const vistosNombre = new Set<string>()
   let sinNombre = 0, valor = 0, unidades = 0, nuevos = 0
@@ -209,6 +220,7 @@ export async function previsualizarImportProductos(filas: FilaProductoImport[]):
     nuevos++
     if (f.categoria && !ctx.catPorNombre.has(f.categoria.trim().toLowerCase())) catNo.add(f.categoria)
     if (f.marca && !ctx.marcaPorNombre.has(f.marca.trim().toLowerCase())) marcaNo.add(f.marca)
+    if (f.linea && !ctx.lineaPorNombre.has(f.linea.trim().toLowerCase())) lineaNo.add(f.linea)
     if (f.cantidad_inicial > 0) {
       unidades += f.cantidad_inicial
       valor += f.cantidad_inicial * f.costo_unitario
@@ -225,6 +237,7 @@ export async function previsualizarImportProductos(filas: FilaProductoImport[]):
     sinNombre,
     categoriasNoEncontradas: [...catNo],
     marcasNoEncontradas: [...marcaNo],
+    lineasNoEncontradas: [...lineaNo],
     valorInventarioInicial: +valor.toFixed(2),
     unidadesIniciales: unidades,
     error: null,
@@ -310,6 +323,7 @@ export async function importarProductos(
     // ----- Producto nuevo: crear -----
     const categoria_id = f.categoria ? ctx.catPorNombre.get(f.categoria.trim().toLowerCase()) ?? null : null
     const marca_id = f.marca ? ctx.marcaPorNombre.get(f.marca.trim().toLowerCase()) ?? null : null
+    const linea_id = f.linea ? ctx.lineaPorNombre.get(f.linea.trim().toLowerCase()) ?? null : null
 
     const productoData: Producto = {
       nombre: f.nombre,
@@ -319,6 +333,7 @@ export async function importarProductos(
       categoria_id,
       marca_id,
       subcategoria_id: null,
+      linea_id,
       talla: f.talla || null,
       foto_url: "",
     }
@@ -367,12 +382,13 @@ export async function importarProductos(
  * exceljs se carga bajo demanda para no engordar el bundle principal.
  */
 export async function descargarPlantillaProductos(): Promise<void> {
-  const [catRes, marcaRes, subRes, almRes, locRes] = await Promise.all([
-    getCategorias(), getMarcas(), getSubcategorias(), getAlmacenes(), getLocalizaciones(),
+  const [catRes, marcaRes, subRes, almRes, locRes, lineaRes] = await Promise.all([
+    getCategorias(), getMarcas(), getSubcategorias(), getAlmacenes(), getLocalizaciones(), getLineasProducto(),
   ])
   const categorias = (catRes.data || []).map((c) => c.nombre)
   const marcas = (marcaRes.data || []).map((m) => m.nombre)
   const subcategorias = (subRes.data || []).map((s) => s.nombre)
+  const lineas = (lineaRes.data || []).map((l) => l.nombre)
   const almacenes = almRes.data || []
   const localizaciones = locRes.data || []
   const almNombre = new Map<number, string>()
@@ -392,10 +408,11 @@ export async function descargarPlantillaProductos(): Promise<void> {
     { header: "Subcategorias", width: 26 },
     { header: "Almacenes", width: 24 },
     { header: "Bodegas / Localizaciones", width: 34 },
+    { header: "Lineas", width: 26 },
   ]
   ref.getRow(1).font = { bold: true }
   const maxRows = Math.max(
-    categorias.length, marcas.length, subcategorias.length, almacenes.length, bodegas.length
+    categorias.length, marcas.length, subcategorias.length, almacenes.length, bodegas.length, lineas.length
   )
   for (let i = 0; i < maxRows; i++) {
     ref.addRow([
@@ -404,6 +421,7 @@ export async function descargarPlantillaProductos(): Promise<void> {
       subcategorias[i] ?? "",
       almacenes[i]?.nombre ?? "",
       bodegas[i] ?? "",
+      lineas[i] ?? "",
     ])
   }
 
@@ -413,17 +431,19 @@ export async function descargarPlantillaProductos(): Promise<void> {
     { header: "Nombre", width: 28 },
     { header: "Categoria", width: 18 },
     { header: "Marca", width: 18 },
+    { header: "Linea", width: 18 },
     { header: "Talla", width: 8 },
     { header: "Precio Venta", width: 14 },
     { header: "Costo Unitario", width: 14 },
     { header: "Cantidad Inicial", width: 14 },
   ]
   ws.getRow(1).font = { bold: true }
-  ws.addRow(["CB-001", "Camisa Polo Azul", categorias[0] ?? "Ropa", marcas[0] ?? "Marca X", "M", 350, 180, 20])
-  ws.addRow(["CB-002", "Pantalon Jean", categorias[0] ?? "Ropa", marcas[1] ?? marcas[0] ?? "Marca Y", "32", 650, 300, 10])
+  ws.addRow(["CB-001", "Camisa Polo Azul", categorias[0] ?? "Ropa", marcas[0] ?? "Marca X", lineas[0] ?? "", "M", 350, 180, 20])
+  ws.addRow(["CB-002", "Pantalon Jean", categorias[0] ?? "Ropa", marcas[1] ?? marcas[0] ?? "Marca Y", lineas[0] ?? "", "32", 650, 300, 10])
 
-  // Desplegables en Categoria (col C) y Marca (col D), apuntando a Referencias.
-  // showErrorMessage:false => es una ayuda, no bloquea escribir un valor nuevo.
+  // Desplegables en Categoria (col C), Marca (col D) y Linea (col E), apuntando
+  // a Referencias. showErrorMessage:false => es una ayuda, no bloquea escribir
+  // un valor nuevo.
   const FILAS = 500
   if (categorias.length > 0) {
     const rango = `Referencias!$A$2:$A$${categorias.length + 1}`
@@ -435,6 +455,12 @@ export async function descargarPlantillaProductos(): Promise<void> {
     const rango = `Referencias!$B$2:$B$${marcas.length + 1}`
     for (let r = 2; r <= FILAS + 1; r++) {
       ws.getCell(`D${r}`).dataValidation = { type: "list", allowBlank: true, formulae: [rango], showErrorMessage: false }
+    }
+  }
+  if (lineas.length > 0) {
+    const rango = `Referencias!$F$2:$F$${lineas.length + 1}`
+    for (let r = 2; r <= FILAS + 1; r++) {
+      ws.getCell(`E${r}`).dataValidation = { type: "list", allowBlank: true, formulae: [rango], showErrorMessage: false }
     }
   }
 

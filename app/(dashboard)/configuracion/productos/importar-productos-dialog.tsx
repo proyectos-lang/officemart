@@ -289,11 +289,11 @@ export function ImportarProductosDialog({ onImported }: { onImported: () => void
                       {preview.sinNombre} fila(s) sin nombre se ignorarán.
                     </p>
                   )}
-                  {(preview.categoriasNoEncontradas.length > 0 || preview.marcasNoEncontradas.length > 0) && (
+                  {(preview.categoriasNoEncontradas.length > 0 || preview.marcasNoEncontradas.length > 0 || (preview.lineasNoEncontradas?.length ?? 0) > 0) && (
                     <p className="flex items-start gap-1.5 text-xs text-amber-700">
                       <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                       Sin coincidencia (se crearán sin ese dato):{" "}
-                      {[...preview.categoriasNoEncontradas.map((c) => `cat. ${c}`), ...preview.marcasNoEncontradas.map((m) => `marca ${m}`)].slice(0, 6).join(", ")}
+                      {[...preview.categoriasNoEncontradas.map((c) => `cat. ${c}`), ...preview.marcasNoEncontradas.map((m) => `marca ${m}`), ...(preview.lineasNoEncontradas ?? []).map((l) => `línea ${l}`)].slice(0, 6).join(", ")}
                     </p>
                   )}
                   {requiereInventario && (!almacenId || !localizacionId) && (

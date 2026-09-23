@@ -1,15 +1,24 @@
 import * as XLSX from "xlsx"
 import { getClientes, saveCliente, type Cliente } from "@/lib/services/catalogos"
+import { getZonas, getVendedores } from "@/lib/services/vendedores"
 
 // ==================== IMPORTAR CLIENTES · Excel ====================
 //
 // Descarga de plantilla + parseo + preview + carga masiva de clientes. Mismo
 // estilo tolerante a tildes/variaciones de encabezado que importar-materiales.
 // Dedup por RTN (si viene) y, si no, por nombre. Crea con saveCliente(_, true).
+// Columnas opcionales del script officemart-002: Correo, Limite de Credito,
+// Dias de Credito, Zona y Vendedor (por nombre) y Notas.
 
 function str(v: unknown): string {
   if (v == null) return ""
   return String(v).trim()
+}
+
+function num(v: unknown): number | null {
+  if (v == null || v === "") return null
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(/\s/g, "").replace(",", "."))
+  return Number.isFinite(n) ? n : null
 }
 
 /** Valor de la primera columna cuyo encabezado matchee alguno de los alias. */
@@ -50,7 +59,13 @@ export interface FilaClienteImport {
   rtn: string
   direccion: string
   telefono: string
+  correo: string
   fecha_nacimiento: string // ISO o ""
+  limite_credito: number | null
+  dias_credito: number | null
+  zona: string
+  vendedor: string
+  notas: string
 }
 
 export interface PreviewClientes {
@@ -58,6 +73,9 @@ export interface PreviewClientes {
   nuevos: number
   duplicados: string[] // nombres/RTN que ya existen
   sinNombre: number
+  /** Zonas/vendedores escritos en el archivo que no existen (se cargan sin ese dato). */
+  zonasNoEncontradas?: string[]
+  vendedoresNoEncontrados?: string[]
 }
 
 export interface ResultadoCliente {
@@ -78,17 +96,30 @@ const CLIENTES_TEMPLATE_HEADERS = [
   "RTN",
   "Direccion",
   "Telefono",
+  "Correo",
   "Fecha Nacimiento",
+  "Limite Credito",
+  "Dias Credito",
+  "Zona",
+  "Vendedor",
+  "Notas",
 ] as const
 
 /** Descarga la plantilla .xlsx de carga de clientes con 2 filas de ejemplo. */
 export function descargarPlantillaClientes(): void {
   const ejemplo: Record<string, unknown>[] = [
-    { Nombre: "Juan Pérez", RTN: "0801-1990-00123", Direccion: "Col. Centro, Tegucigalpa", Telefono: "9999-9999", "Fecha Nacimiento": "1990-05-20" },
-    { Nombre: "María López", RTN: "", Direccion: "", Telefono: "8888-8888", "Fecha Nacimiento": "" },
+    {
+      Nombre: "Juan Pérez", RTN: "0801-1990-00123", Direccion: "Col. Centro, Tegucigalpa", Telefono: "9999-9999",
+      Correo: "juan@correo.com", "Fecha Nacimiento": "1990-05-20", "Limite Credito": 25000, "Dias Credito": 30,
+      Zona: "", Vendedor: "", Notas: "Entregar solo por la mañana",
+    },
+    {
+      Nombre: "María López", RTN: "", Direccion: "", Telefono: "8888-8888", Correo: "", "Fecha Nacimiento": "",
+      "Limite Credito": "", "Dias Credito": "", Zona: "", Vendedor: "", Notas: "",
+    },
   ]
   const ws = XLSX.utils.json_to_sheet(ejemplo, { header: CLIENTES_TEMPLATE_HEADERS as unknown as string[] })
-  ws["!cols"] = [{ wch: 28 }, { wch: 18 }, { wch: 30 }, { wch: 14 }, { wch: 16 }]
+  ws["!cols"] = [{ wch: 28 }, { wch: 18 }, { wch: 30 }, { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 30 }]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, "Clientes")
   XLSX.writeFile(wb, "Plantilla_Clientes.xlsx")
@@ -113,26 +144,43 @@ export async function parsearArchivoClientes(file: File): Promise<FilaClienteImp
       rtn,
       direccion: str(col(row, ["Direccion", "Dirección", "Domicilio"])),
       telefono: str(col(row, ["Telefono", "Teléfono", "Celular", "Tel"])),
+      correo: str(col(row, ["Correo", "Email", "E-mail", "Correo Electronico", "Correo Electrónico"])),
       fecha_nacimiento: fechaISO(col(row, ["Fecha Nacimiento", "Fecha de Nacimiento", "Nacimiento", "Cumpleaños", "Cumpleanos"])),
+      limite_credito: num(col(row, ["Limite Credito", "Límite Crédito", "Limite de Credito", "Límite de Crédito", "Cupo"])),
+      dias_credito: num(col(row, ["Dias Credito", "Días Crédito", "Dias de Credito", "Días de Crédito", "Plazo"])),
+      zona: str(col(row, ["Zona", "Ruta"])),
+      vendedor: str(col(row, ["Vendedor", "Ejecutivo"])),
+      notas: str(col(row, ["Notas", "Observaciones", "Nota"])),
     })
   })
   return filas
 }
 
-/** Contexto de dedup: clientes existentes por RTN y por nombre (lowercased). */
-async function cargarContexto(): Promise<{ porRtn: Set<string>; porNombre: Set<string> }> {
-  const { data } = await getClientes()
+interface ContextoImport {
+  porRtn: Set<string>
+  porNombre: Set<string>
+  zonaPorNombre: Map<string, number>
+  vendedorPorNombre: Map<string, number>
+}
+
+/** Contexto de dedup (clientes por RTN y nombre) + catálogos de zona/vendedor por nombre. */
+async function cargarContexto(): Promise<ContextoImport> {
+  const [{ data }, zonasRes, vendRes] = await Promise.all([getClientes(), getZonas(), getVendedores()])
   const porRtn = new Set<string>()
   const porNombre = new Set<string>()
   for (const c of data) {
     if (c.rtn) porRtn.add(c.rtn.trim().toLowerCase())
     if (c.nombre) porNombre.add(c.nombre.trim().toLowerCase())
   }
-  return { porRtn, porNombre }
+  const zonaPorNombre = new Map<string, number>()
+  for (const z of zonasRes.data || []) if (z.id != null) zonaPorNombre.set(z.nombre.trim().toLowerCase(), z.id)
+  const vendedorPorNombre = new Map<string, number>()
+  for (const v of vendRes.data || []) if (v.id != null) vendedorPorNombre.set(v.nombre.trim().toLowerCase(), v.id)
+  return { porRtn, porNombre, zonaPorNombre, vendedorPorNombre }
 }
 
 /** true si la fila ya existe (por RTN si lo trae, o por nombre). */
-function esDuplicado(f: FilaClienteImport, ctx: { porRtn: Set<string>; porNombre: Set<string> }): boolean {
+function esDuplicado(f: FilaClienteImport, ctx: ContextoImport): boolean {
   if (f.rtn) return ctx.porRtn.has(f.rtn.trim().toLowerCase())
   return ctx.porNombre.has(f.nombre.trim().toLowerCase())
 }
@@ -142,12 +190,19 @@ export async function previsualizarImportClientes(filas: FilaClienteImport[]): P
   let nuevos = 0
   let sinNombre = 0
   const duplicados: string[] = []
+  const zonasNo = new Set<string>()
+  const vendNo = new Set<string>()
   for (const f of filas) {
     if (!f.nombre) { sinNombre++; continue }
     if (esDuplicado(f, ctx)) duplicados.push(f.rtn || f.nombre)
     else nuevos++
+    if (f.zona && !ctx.zonaPorNombre.has(f.zona.trim().toLowerCase())) zonasNo.add(f.zona)
+    if (f.vendedor && !ctx.vendedorPorNombre.has(f.vendedor.trim().toLowerCase())) vendNo.add(f.vendedor)
   }
-  return { total: filas.length, nuevos, duplicados, sinNombre }
+  return {
+    total: filas.length, nuevos, duplicados, sinNombre,
+    zonasNoEncontradas: [...zonasNo], vendedoresNoEncontrados: [...vendNo],
+  }
 }
 
 export async function importarClientes(
@@ -173,7 +228,13 @@ export async function importarClientes(
       rtn: f.rtn || undefined,
       direccion: f.direccion || undefined,
       telefono: f.telefono || undefined,
+      correo: f.correo || null,
       fecha_nacimiento: f.fecha_nacimiento || undefined,
+      limite_credito: f.limite_credito,
+      dias_credito: f.dias_credito,
+      zona_id: f.zona ? ctx.zonaPorNombre.get(f.zona.trim().toLowerCase()) ?? null : null,
+      vendedor_id: f.vendedor ? ctx.vendedorPorNombre.get(f.vendedor.trim().toLowerCase()) ?? null : null,
+      notas: f.notas || null,
     }
     const { error } = await saveCliente(cliente, true)
     if (error) {

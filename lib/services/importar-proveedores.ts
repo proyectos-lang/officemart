@@ -5,10 +5,18 @@ import { getProveedores, saveProveedor, type Proveedor } from "@/lib/services/ca
 //
 // Descarga de plantilla + parseo + preview + carga masiva de proveedores.
 // Dedup por RTN (si viene) y, si no, por nombre. Crea con saveProveedor(_, true).
+// Columnas de contacto separadas (script officemart-002): Contacto (persona),
+// Telefono, Correo, Direccion, Pais, Moneda, Dias de Credito.
 
 function str(v: unknown): string {
   if (v == null) return ""
   return String(v).trim()
+}
+
+function num(v: unknown): number | null {
+  if (v == null || v === "") return null
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."))
+  return Number.isFinite(n) ? n : null
 }
 
 function col(row: Record<string, unknown>, alias: string[]): unknown {
@@ -25,6 +33,12 @@ export interface FilaProveedorImport {
   nombre: string
   rtn: string
   contacto: string
+  telefono: string
+  correo: string
+  direccion: string
+  pais: string
+  moneda: string
+  dias_credito: number | null
 }
 
 export interface PreviewProveedores {
@@ -47,16 +61,32 @@ export interface ResultadoImportProveedores {
   proveedores: ResultadoProveedor[]
 }
 
-const PROVEEDORES_TEMPLATE_HEADERS = ["Nombre", "RTN", "Contacto"] as const
+const PROVEEDORES_TEMPLATE_HEADERS = [
+  "Nombre",
+  "RTN",
+  "Contacto",
+  "Telefono",
+  "Correo",
+  "Direccion",
+  "Pais",
+  "Moneda",
+  "Dias de Credito",
+] as const
 
 /** Descarga la plantilla .xlsx de carga de proveedores con 2 filas de ejemplo. */
 export function descargarPlantillaProveedores(): void {
   const ejemplo: Record<string, unknown>[] = [
-    { Nombre: "Distribuidora El Sol", RTN: "0801-1985-00456", Contacto: "Carlos Mejía · 9999-9999" },
-    { Nombre: "Importaciones Luna", RTN: "", Contacto: "" },
+    {
+      Nombre: "Distribuidora El Sol", RTN: "0801-1985-00456", Contacto: "Carlos Mejía", Telefono: "9999-9999",
+      Correo: "ventas@elsol.hn", Direccion: "Col. Centro, San Pedro Sula", Pais: "Honduras", Moneda: "LPS", "Dias de Credito": 30,
+    },
+    {
+      Nombre: "Importaciones Luna", RTN: "", Contacto: "", Telefono: "", Correo: "", Direccion: "", Pais: "Estados Unidos",
+      Moneda: "USD", "Dias de Credito": "",
+    },
   ]
   const ws = XLSX.utils.json_to_sheet(ejemplo, { header: PROVEEDORES_TEMPLATE_HEADERS as unknown as string[] })
-  ws["!cols"] = [{ wch: 28 }, { wch: 18 }, { wch: 30 }]
+  ws["!cols"] = [{ wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 24 }, { wch: 30 }, { wch: 14 }, { wch: 8 }, { wch: 14 }]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, "Proveedores")
   XLSX.writeFile(wb, "Plantilla_Proveedores.xlsx")
@@ -78,7 +108,13 @@ export async function parsearArchivoProveedores(file: File): Promise<FilaProveed
       fila: i + 2,
       nombre,
       rtn,
-      contacto: str(col(row, ["Contacto", "Telefono", "Teléfono", "Correo", "Email", "Persona de Contacto"])),
+      contacto: str(col(row, ["Contacto", "Persona de Contacto", "Persona"])),
+      telefono: str(col(row, ["Telefono", "Teléfono", "Celular", "Tel"])),
+      correo: str(col(row, ["Correo", "Email", "E-mail", "Correo Electronico", "Correo Electrónico"])),
+      direccion: str(col(row, ["Direccion", "Dirección", "Domicilio"])),
+      pais: str(col(row, ["Pais", "País"])),
+      moneda: str(col(row, ["Moneda"])).toUpperCase(),
+      dias_credito: num(col(row, ["Dias de Credito", "Días de Crédito", "Dias Credito", "Credito (dias)", "Plazo"])),
     })
   })
   return filas
@@ -133,8 +169,14 @@ export async function importarProveedores(
     }
     const proveedor: Proveedor = {
       nombre: f.nombre,
-      rtn: f.rtn,
-      contacto: f.contacto,
+      rtn: f.rtn || null,
+      contacto: f.contacto || null,
+      telefono: f.telefono || null,
+      correo: f.correo || null,
+      direccion: f.direccion || null,
+      pais: f.pais || null,
+      moneda: f.moneda === "USD" ? "USD" : f.moneda === "LPS" ? "LPS" : null,
+      dias_credito: f.dias_credito,
     }
     const { error } = await saveProveedor(proveedor, true)
     if (error) {

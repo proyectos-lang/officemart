@@ -469,6 +469,19 @@ Numeración atómica por empresa y serie: `razon_social_id, serie` (PK compuesta
 
 > **Cadena de saldos por (fecha, id).** `registrarMovimientoCuenta` acepta `fecha` (pasada, nunca futura ni dentro de un período conciliado) y `referencia`. Por eso `recalcCadenaSaldoCuenta` y el trigger `tg_limpiar_tesoreria_ref` (reemplazado por este script, mismo OID) acumulan `saldo_resultante` en orden cronológico `(fecha, id)` y no por orden de inserción; las lecturas de movimientos ordenan `fecha desc, id desc`.
 
+## Officemart — cimientos de catálogos (script officemart-002)
+
+### `lineas`
+Línea de producto: clasificación transversal e independiente de la categoría (`id, razon_social_id, nombre, descripcion, activo, usuario, created_at, updated_at`; único `(razon_social_id, lower(nombre))`; RLS por tenant). `productos.linea_id` (bigint nullable, **sin FK**: PostgREST no puede embeber `lineas(nombre)`, el nombre lo resuelve `getLineasProducto` en la app). Una línea con productos no se borra: se desactiva.
+
+### `zonas` y `vendedores`
+- `zonas`: `id, razon_social_id, nombre, ciudad, activo, ...` (único por nombre y tenant). Se asigna en `clientes.zona_id`.
+- `vendedores`: `id, razon_social_id, nombre, usuario_id (uuid = auth.users.id, opcional), correo, telefono, activo, ...`. Se asigna en `clientes.vendedor_id` (vendedor de cartera) y se guarda en cada venta en `ventas_encabezado.vendedor_id` (índice `(razon_social_id, vendedor_id)`), base de comisiones y reportes por vendedor. Un vendedor con ventas no se borra: se desactiva. Módulo `Vendedores y Zonas` (opt-in); flag `ventas_vendedor_obligatorio`.
+
+### Columnas nuevas (nullable, sin default)
+- `clientes`: `notas` (se muestra al elegir el cliente en Nueva Venta), `correo`, `dias_credito` (plazo de sus facturas; con facturas vencidas más allá del plazo, Nueva Venta bloquea el crédito — `bloqueoCreditoCliente` / `getFacturasVencidasCliente` en `lib/services/ventas.ts`), `cliente_relacionado_id` ("segundo cliente"), `bloqueado` + `motivo_bloqueo` (bloqueo manual de crédito), `zona_id`, `vendedor_id`.
+- `proveedores`: `correo, telefono, direccion, notas, moneda ('LPS'|'USD'), pais, dias_credito`. `rtn` pasa a ser opcional en la app (proveedor extranjero). Las dos interfaces `Proveedor` (`catalogos.ts` y `proveedores.ts`) quedaron unificadas en la de `catalogos.ts`.
+
 ---
 
 ## Storage

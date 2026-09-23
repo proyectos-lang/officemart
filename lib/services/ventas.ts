@@ -78,6 +78,11 @@ export interface VentaEncabezado {
   cai_emitido?: string | null
   /** Tipo de documento fiscal emitido: '01' Factura, '06' NC, '07' ND. */
   tipo_documento_fiscal?: string | null
+  /**
+   * Vendedor asociado a la venta (tabla `vendedores`, script officemart-002).
+   * NULL si la empresa no usa vendedores. Alimenta comisiones y reportes.
+   */
+  vendedor_id?: number | null
 }
 
 export interface VentaDetalle {
@@ -654,6 +659,90 @@ export function excedeLimiteCredito(
   return saldoActual + saldoNuevaVenta > lim + 0.005
 }
 
+/**
+ * Regla de bloqueo de crédito por estado del cliente (pura). Devuelve el
+ * motivo por el que NO se le puede vender a crédito, o null si puede.
+ *   - `bloqueado`: bloqueo manual del admin (con su motivo).
+ *   - mora: si el cliente tiene días de crédito y alguna factura con saldo ya
+ *     pasó ese plazo, se bloquea hasta que se ponga al día.
+ * Solo aplica a ventas que dejan saldo; una venta de contado nunca se bloquea.
+ */
+export function bloqueoCreditoCliente(input: {
+  bloqueado?: boolean | null
+  motivoBloqueo?: string | null
+  diasCredito?: number | null
+  /** Facturas con saldo cuya antigüedad supera `diasCredito` (calculadas aparte). */
+  facturasVencidas?: number
+  diasMaxVencido?: number
+}): string | null {
+  if (input.bloqueado) {
+    const motivo = (input.motivoBloqueo || '').trim()
+    return motivo ? `Cliente bloqueado para crédito: ${motivo}` : 'Cliente bloqueado para crédito'
+  }
+  const dias = Number(input.diasCredito || 0)
+  const vencidas = Number(input.facturasVencidas || 0)
+  if (dias > 0 && vencidas > 0) {
+    const max = Number(input.diasMaxVencido || 0)
+    return `Tiene ${vencidas} factura${vencidas === 1 ? '' : 's'} vencida${vencidas === 1 ? '' : 's'}` +
+      (max > 0 ? ` (la más antigua con ${max} días sobre su plazo de ${dias})` : ` (plazo de ${dias} días)`) +
+      '. Debe ponerse al día antes de venderle a crédito.'
+  }
+  return null
+}
+
+/**
+ * Facturas con saldo de un cliente cuya fecha + días de crédito ya pasó (mora).
+ * Devuelve el conteo y el máximo de días vencidos. 0/0 si no hay plazo, no hay
+ * Supabase o falla la lectura (no bloquear por un error de lectura).
+ */
+export async function getFacturasVencidasCliente(
+  clienteId: number,
+  diasCredito: number | null | undefined,
+  hoyISO?: string
+): Promise<{ vencidas: number; diasMaxVencido: number }> {
+  const dias = Number(diasCredito || 0)
+  if (dias <= 0 || !isSupabaseConfigured()) return { vencidas: 0, diasMaxVencido: 0 }
+  const supabase = createClient()
+  if (!supabase) return { vencidas: 0, diasMaxVencido: 0 }
+  try {
+    const { data, error } = await supabase
+      .from('ventas_encabezado')
+      .select('fecha_venta, total_venta, valorpago')
+      .eq('cliente_id', clienteId)
+      .neq('estado_pago', 'Pagado')
+    if (error) return { vencidas: 0, diasMaxVencido: 0 }
+    return contarFacturasVencidas(
+      (data || []) as { fecha_venta?: string | null; total_venta?: number | null; valorpago?: number | null }[],
+      dias,
+      hoyISO || getHondurasNowISO()
+    )
+  } catch {
+    return { vencidas: 0, diasMaxVencido: 0 }
+  }
+}
+
+/** Cuenta facturas con saldo cuya antigüedad (días) supera el plazo (pura). */
+export function contarFacturasVencidas(
+  ventas: { fecha_venta?: string | null; total_venta?: number | null; valorpago?: number | null }[],
+  diasCredito: number,
+  hoyISO: string
+): { vencidas: number; diasMaxVencido: number } {
+  const hoy = Date.parse(hoyISO.slice(0, 10))
+  let vencidas = 0
+  let diasMaxVencido = 0
+  for (const v of ventas) {
+    const saldo = Number(v.total_venta || 0) - Number(v.valorpago || 0)
+    if (saldo <= 0.005 || !v.fecha_venta) continue
+    const antiguedad = Math.floor((hoy - Date.parse(String(v.fecha_venta).slice(0, 10))) / 86_400_000)
+    const sobrePlazo = antiguedad - diasCredito
+    if (sobrePlazo > 0) {
+      vencidas++
+      if (sobrePlazo > diasMaxVencido) diasMaxVencido = sobrePlazo
+    }
+  }
+  return { vencidas, diasMaxVencido }
+}
+
 export async function crearVenta(
   data: CrearVentaData
 ): Promise<{ data: VentaEncabezado | null; error: string | null }> {
@@ -860,6 +949,21 @@ export async function crearVenta(
       const retry = await supabase
         .from('ventas_encabezado')
         .insert(sinFiscal)
+        .select()
+        .single()
+      ventaData = retry.data
+      ventaError = retry.error
+    }
+
+    // Fallback: columna `vendedor_id` ausente (script officemart-002 pendiente):
+    // reintentamos sin ella; la venta se guarda sin vendedor.
+    if (ventaError && /vendedor_id/i.test(ventaError.message || '')) {
+      console.warn('[crearVenta] Columna vendedor_id no existe. Aplica scripts/officemart-002-cimientos.sql.')
+      const { vendedor_id: _v, ...sinVendedor } = encabezadoConAlmacen as
+        { vendedor_id?: number | null } & Record<string, unknown>
+      const retry = await supabase
+        .from('ventas_encabezado')
+        .insert(sinVendedor)
         .select()
         .single()
       ventaData = retry.data

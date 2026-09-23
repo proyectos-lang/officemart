@@ -20,16 +20,10 @@ import {
   isValidStamp,
   SESION_INVALIDA_ERROR,
 } from "@/lib/services/tenant-stamp"
+import type { Proveedor } from "@/lib/services/catalogos"
 
-export interface Proveedor {
-  id?: number
-  nombre: string
-  /** Datos opcionales que algunos tenants tienen y otros no. */
-  rtn?: string | null
-  telefono?: string | null
-  email?: string | null
-  created_at?: string
-}
+// Una sola definicion de Proveedor para toda la app (la de catalogos.ts).
+export type { Proveedor }
 
 /** Indicador para que la UI sepa cuando la tabla no esta disponible. */
 export const PROVEEDORES_FEATURE_PENDING = "feature_pending"

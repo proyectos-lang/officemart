@@ -176,12 +176,15 @@ export default async function PlataformaPage() {
                 <th className="px-4 py-2 font-medium" title="Oculta el saldo y los montos de Caja Chica a los usuarios NO admin (cierre a ciegas); el admin ve todo">
                   Ocultar saldo caja
                 </th>
+                <th className="px-4 py-2 font-medium" title="Exige elegir un vendedor en Nueva Venta (requiere el módulo 'Vendedores y Zonas' habilitado)">
+                  Vendedor obligatorio
+                </th>
               </tr>
             </thead>
             <tbody>
               {empresas.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-stone-400">
+                  <td colSpan={14} className="px-4 py-10 text-center text-stone-400">
                     Sin empresas para mostrar.
                   </td>
                 </tr>
@@ -287,6 +290,15 @@ export default async function PlataformaPage() {
                         initial={e.flags.caja_ocultar_saldo}
                         onLabel="Oculto"
                         offLabel="Visible"
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <FlagToggle
+                        razonSocialId={e.id}
+                        flag="ventas_vendedor_obligatorio"
+                        initial={e.flags.ventas_vendedor_obligatorio}
+                        onLabel="Obligatorio"
+                        offLabel="Opcional"
                       />
                     </td>
                   </tr>

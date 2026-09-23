@@ -79,6 +79,9 @@ import {
   getSubcategorias,
   getAlmacenes,
   getLocalizaciones,
+  getLineasProducto,
+  createLineaProducto,
+  type LineaProducto,
 } from "@/lib/services/catalogos"
 import { procesarIngresoManual } from "@/lib/services/inventario"
 import {
@@ -109,6 +112,7 @@ type SortKey =
   | "marca_nombre"
   | "categoria_nombre"
   | "subcategoria_nombre"
+  | "linea_nombre"
   | "precio_venta_sugerido"
   | "costo_promedio"
   | "ganancia"
@@ -172,6 +176,9 @@ export default function ProductosConfigPage() {
    * una subcategoria desde el modal de Gestion.
    */
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
+  // Lineas de producto (script officemart-002). Vacio si la tabla no existe:
+  // en ese caso el campo y el filtro de linea se ocultan.
+  const [lineasProducto, setLineasProducto] = useState<LineaProducto[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProducto, setEditingProducto] = useState<Producto | null>(null)
@@ -190,15 +197,19 @@ export default function ProductosConfigPage() {
   // Filter state
   const [filterMarca, setFilterMarca] = useState<string>("all")
   const [filterCategoria, setFilterCategoria] = useState<string>("all")
+  const [filterLinea, setFilterLinea] = useState<string>("all")
   const [searchTerm, setSearchTerm] = useState("")
-  
+
   // Quick-create modals state
   const [marcaDialogOpen, setMarcaDialogOpen] = useState(false)
   const [categoriaDialogOpen, setCategoriaDialogOpen] = useState(false)
+  const [lineaDialogOpen, setLineaDialogOpen] = useState(false)
   const [newMarcaName, setNewMarcaName] = useState("")
   const [newCategoriaName, setNewCategoriaName] = useState("")
+  const [newLineaName, setNewLineaName] = useState("")
   const [creatingMarca, setCreatingMarca] = useState(false)
   const [creatingCategoria, setCreatingCategoria] = useState(false)
+  const [creatingLinea, setCreatingLinea] = useState(false)
 
   // Modal de gestion completa de Categorias / Subcategorias.
   // Abre un acordeon donde cada fila es una categoria que se expande para
@@ -220,6 +231,7 @@ export default function ProductosConfigPage() {
     marca_id: null,
     categoria_id: null,
     subcategoria_id: null,
+    linea_id: null,
     talla: "",
   })
   const [imageFile, setImageFile] = useState<File | null>(null)
@@ -286,7 +298,7 @@ export default function ProductosConfigPage() {
   async function loadAll() {
     setLoading(true)
     try {
-      const [prodRes, marcaRes, catRes, subRes, almRes, gruposRes, fabRes] = await Promise.all([
+      const [prodRes, marcaRes, catRes, subRes, almRes, gruposRes, fabRes, lineasRes] = await Promise.all([
         getProductos(),
         getMarcas(),
         getCategorias(),
@@ -294,7 +306,9 @@ export default function ProductosConfigPage() {
         getAlmacenes(),
         getGruposTallas(),
         produccionActiva ? getProductosFabricados() : Promise.resolve({ data: new Set<number>(), error: null }),
+        getLineasProducto(),
       ])
+      if (!lineasRes.error) setLineasProducto(lineasRes.data)
       if (prodRes.error) {
         console.log('[Productos] error:', prodRes.error)
         toast({ title: "No se pudieron cargar los datos", description: prodRes.error, variant: "destructive" })
@@ -318,6 +332,11 @@ export default function ProductosConfigPage() {
   async function loadSubcategorias() {
     const { data } = await getSubcategorias()
     setSubcategorias(data)
+  }
+
+  async function loadLineas() {
+    const { data } = await getLineasProducto()
+    setLineasProducto(data)
   }
 
   // Carga las localizaciones del almacen elegido para el inventario inicial.
@@ -400,6 +419,8 @@ export default function ProductosConfigPage() {
         return (p.categoria_nombre ?? "").toString().toLowerCase()
       case "subcategoria_nombre":
         return (p.subcategoria_nombre ?? "").toString().toLowerCase()
+      case "linea_nombre":
+        return (p.linea_nombre ?? "").toString().toLowerCase()
     }
   }
 
@@ -408,6 +429,7 @@ export default function ProductosConfigPage() {
     const arr = productos.filter(p => {
       const matchMarca = filterMarca === "all" || p.marca_id?.toString() === filterMarca
       const matchCat = filterCategoria === "all" || p.categoria_id?.toString() === filterCategoria
+      const matchLinea = filterLinea === "all" || p.linea_id?.toString() === filterLinea
       const search = searchTerm.toLowerCase().trim()
       // Blindamos contra `nombre`/`codigo_barras` nulos o no-string en BD:
       // llamar .toLowerCase() sobre null/undefined lanzaba una excepcion de
@@ -417,7 +439,7 @@ export default function ProductosConfigPage() {
       const matchSearch = !search ||
         nombre.includes(search) ||
         codigoBarras.includes(search)
-      return matchMarca && matchCat && matchSearch
+      return matchMarca && matchCat && matchLinea && matchSearch
     })
 
     if (sortKey) {
@@ -430,7 +452,7 @@ export default function ProductosConfigPage() {
       })
     }
     return arr
-  }, [productos, filterMarca, filterCategoria, searchTerm, sortKey, sortDir])
+  }, [productos, filterMarca, filterCategoria, filterLinea, searchTerm, sortKey, sortDir])
 
   /**
    * Agrupa `filteredProductos` para la lista: los productos que comparten
@@ -587,6 +609,17 @@ export default function ProductosConfigPage() {
             <span className="text-stone-400 text-xs">-</span>
           )}
         </TableCell>
+        {lineasProducto.length > 0 && (
+          <TableCell>
+            {producto.linea_nombre ? (
+              <Badge variant="outline" className="bg-sky-50 border-sky-200 text-sky-800 rounded-full font-normal">
+                {producto.linea_nombre}
+              </Badge>
+            ) : (
+              <span className="text-stone-400 text-xs">-</span>
+            )}
+          </TableCell>
+        )}
         <TableCell className="text-right font-medium text-emerald-700">L {precio.toFixed(2)}</TableCell>
         <TableCell className="text-right text-stone-600">L {costo.toFixed(2)}</TableCell>
         <TableCell className={`text-right font-medium ${color}`}>{formatCurrency(ganancia)}</TableCell>
@@ -723,6 +756,25 @@ export default function ProductosConfigPage() {
     setCategoriaDialogOpen(false)
   }
 
+  async function handleCreateLinea() {
+    if (!newLineaName.trim()) {
+      toast({ title: "Error", description: "El nombre es requerido", variant: "destructive" })
+      return
+    }
+    setCreatingLinea(true)
+    const { data, error } = await createLineaProducto(newLineaName.trim())
+    setCreatingLinea(false)
+    if (error) {
+      toast({ title: "Error", description: error, variant: "destructive" })
+      return
+    }
+    toast({ title: "Línea creada", description: `"${newLineaName}" agregada correctamente` })
+    await loadLineas()
+    if (data?.id) setFormData(prev => ({ ...prev, linea_id: data.id }))
+    setNewLineaName("")
+    setLineaDialogOpen(false)
+  }
+
   function openNewDialog() {
     setValidationErrors({})
     setEditingProducto(null)
@@ -736,6 +788,7 @@ export default function ProductosConfigPage() {
       marca_id: null,
       categoria_id: null,
       subcategoria_id: null,
+      linea_id: null,
       talla: "",
     })
     setInvInicial({ cantidad: 0, costo_unitario: 0, almacen_id: 0, localizacion_id: 0 })
@@ -970,6 +1023,8 @@ export default function ProductosConfigPage() {
       subcategoria_id: formData.categoria_id
         ? formData.subcategoria_id ?? null
         : null,
+      // Linea de producto (opcional, independiente de la categoria).
+      linea_id: formData.linea_id ?? null,
       talla: talla || null,
     }
 
@@ -1238,6 +1293,24 @@ export default function ProductosConfigPage() {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Filtro Linea (solo si la empresa tiene lineas) */}
+            {lineasProducto.length > 0 && (
+              <Select value={filterLinea} onValueChange={setFilterLinea}>
+                <SelectTrigger className="bg-white border-stone-200 rounded-xl">
+                  <div className="flex items-center gap-2">
+                    <Layers3 className="h-4 w-4 text-stone-500" />
+                    <SelectValue placeholder="Todas las líneas" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las líneas</SelectItem>
+                  {lineasProducto.map((l) => (
+                    <SelectItem key={l.id} value={l.id!.toString()}>{l.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -1339,6 +1412,9 @@ export default function ProductosConfigPage() {
                       <SortHeader label="Marca" sortField="marca_nombre" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                       <SortHeader label="Categoria" sortField="categoria_nombre" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                       <SortHeader label="Subcategoria" sortField="subcategoria_nombre" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                      {lineasProducto.length > 0 && (
+                        <SortHeader label="Línea" sortField="linea_nombre" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                      )}
                       <SortHeader label="Precio Venta" sortField="precio_venta_sugerido" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="right" />
                       <SortHeader label="Costo Prom." sortField="costo_promedio" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="right" />
                       <SortHeader label="Ganancia" sortField="ganancia" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="right" />
@@ -1920,6 +1996,45 @@ export default function ProductosConfigPage() {
               </div>
             </div>
 
+            {/*
+              Linea de producto (script officemart-002): clasificacion
+              transversal, independiente de la categoria. Opcional. Si la
+              empresa aun no tiene lineas, el boton + permite crear la primera.
+            */}
+            <div className="grid gap-2">
+              <Label htmlFor="linea">
+                Línea de producto <span className="text-stone-400 text-xs font-normal">(opcional)</span>
+              </Label>
+              <div className="flex gap-2">
+                <Select
+                  value={formData.linea_id?.toString() || "none"}
+                  onValueChange={(v) =>
+                    setFormData({ ...formData, linea_id: v === "none" ? null : parseInt(v) })
+                  }
+                >
+                  <SelectTrigger className="flex-1 rounded-xl border-stone-200">
+                    <SelectValue placeholder="Sin línea" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin línea</SelectItem>
+                    {lineasProducto.filter((l) => l.activo !== false || l.id === formData.linea_id).map((l) => (
+                      <SelectItem key={l.id} value={l.id!.toString()}>{l.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0 border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl"
+                  onClick={() => { setNewLineaName(""); setLineaDialogOpen(true); }}
+                  title="Agregar nueva línea de producto"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
             {/* Suggested Sale Price */}
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
@@ -2226,6 +2341,7 @@ export default function ProductosConfigPage() {
           marcas={marcas}
           categorias={categorias}
           subcategorias={subcategorias}
+          lineas={lineasProducto}
           onEditarProducto={(p) => { setGrupoEditando(null); openEditDialog(p) }}
           onClose={() => setGrupoEditando(null)}
           onDone={() => { setGrupoEditando(null); loadProductos() }}
@@ -2347,6 +2463,46 @@ export default function ProductosConfigPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Quick-create Linea de producto Modal */}
+      <Dialog open={lineaDialogOpen} onOpenChange={setLineaDialogOpen}>
+        <DialogContent className="max-w-sm rounded-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers3 className="h-5 w-5 text-sky-700" />
+              Nueva Línea de Producto
+            </DialogTitle>
+            <DialogDescription>
+              Clasificación transversal (ej. Suministros de impresión, Equipos). Sirve para precios y reportes por línea.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-3">
+            <Label htmlFor="linea-nombre">Nombre</Label>
+            <Input
+              id="linea-nombre"
+              value={newLineaName}
+              onChange={(e) => setNewLineaName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !creatingLinea) handleCreateLinea() }}
+              placeholder="Ej: Suministros de impresión"
+              className="mt-2 rounded-xl border-stone-200"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLineaDialogOpen(false)} disabled={creatingLinea}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCreateLinea}
+              disabled={creatingLinea || !newLineaName.trim()}
+              className="bg-sky-700 hover:bg-sky-800 text-white"
+            >
+              {creatingLinea && <Spinner className="mr-2 h-4 w-4" />}
+              Crear Línea
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Comprimir fotos ya subidas (backfill) */}
       <Dialog open={recompOpen} onOpenChange={(o) => { if (!recomprimiendo) setRecompOpen(o) }}>
         <DialogContent className="max-w-sm rounded-xl">
@@ -2417,6 +2573,7 @@ function EditarGrupoDialog({
   marcas,
   categorias,
   subcategorias,
+  lineas,
   onEditarProducto,
   onClose,
   onDone,
@@ -2428,6 +2585,7 @@ function EditarGrupoDialog({
   marcas: Marca[]
   categorias: Categoria[]
   subcategorias: Subcategoria[]
+  lineas: LineaProducto[]
   onEditarProducto: (p: Producto) => void
   onClose: () => void
   onDone: () => void
@@ -2442,6 +2600,7 @@ function EditarGrupoDialog({
   const [comunMarcaId, setComunMarcaId] = useState<number | null>(base?.marca_id ?? null)
   const [comunCategoriaId, setComunCategoriaId] = useState<number | null>(base?.categoria_id ?? null)
   const [comunSubcategoriaId, setComunSubcategoriaId] = useState<number | null>(base?.subcategoria_id ?? null)
+  const [comunLineaId, setComunLineaId] = useState<number | null>(base?.linea_id ?? null)
   const [comunFotoUrl, setComunFotoUrl] = useState<string>(base?.foto_url || "")
   const [comunPrecio, setComunPrecio] = useState<string>(String(base?.precio_venta_sugerido ?? 0))
   const [comunCosto, setComunCosto] = useState<string>(String(base?.costo_promedio ?? 0))
@@ -2491,6 +2650,7 @@ function EditarGrupoDialog({
         marca_id: comunMarcaId,
         categoria_id: comunCategoriaId,
         subcategoria_id: comunCategoriaId ? comunSubcategoriaId : null,
+        linea_id: comunLineaId,
         precio_venta_sugerido: precio,
         costo_promedio: costo,
       }, false)
@@ -2566,6 +2726,7 @@ function EditarGrupoDialog({
       marca_id: comunMarcaId,
       categoria_id: comunCategoriaId,
       subcategoria_id: comunCategoriaId ? comunSubcategoriaId : null,
+      linea_id: comunLineaId,
       talla,
     }
     const { data: creado, error } = await saveProducto(nuevoProducto, true)
@@ -2665,6 +2826,18 @@ function EditarGrupoDialog({
                     <SelectContent>
                       <SelectItem value="none">Sin subcategoría</SelectItem>
                       {subcatsComunFiltradas.map((s) => (<SelectItem key={s.id} value={s.id!.toString()}>{s.nombre}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {lineas.length > 0 && (
+                <div className="grid gap-1">
+                  <Label className="text-xs text-stone-500">Línea de producto</Label>
+                  <Select value={comunLineaId?.toString() || "none"} onValueChange={(v) => setComunLineaId(v === "none" ? null : parseInt(v))}>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Sin línea" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin línea</SelectItem>
+                      {lineas.map((l) => (<SelectItem key={l.id} value={l.id!.toString()}>{l.nombre}</SelectItem>))}
                     </SelectContent>
                   </Select>
                 </div>

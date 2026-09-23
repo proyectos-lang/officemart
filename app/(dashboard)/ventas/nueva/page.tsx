@@ -56,10 +56,13 @@ import {
   getRazonSocialForPdf,
   getSaldoPendienteCliente,
   excedeLimiteCredito,
+  bloqueoCreditoCliente,
+  getFacturasVencidasCliente,
   type VentaEncabezado,
   type VentaDetalle,
   type PagoVentaDetalleInput,
 } from "@/lib/services/ventas"
+import { getVendedores, getVendedorDeUsuario, resolverVendedorPorDefecto, type Vendedor } from "@/lib/services/vendedores"
 import { useTenant } from "@/lib/hooks/use-tenant"
 import { useAuth } from "@/lib/contexts/auth-context"
 import { getListaAplicadaCliente, calcularPrecioLista, type ListaAplicada } from "@/lib/services/listas-precios"
@@ -113,6 +116,10 @@ export default function NuevaVentaPage() {
   // Flag por empresa: bloquear precio de venta + descuento a los NO admin.
   const esAdmin = (user?.rol || "").trim().toLowerCase() === "admin"
   const bloquearPrecioDescuento = (user?.flags?.ventas_bloquear_precio_descuento ?? false) && !esAdmin
+  // Modulo "Vendedores y Zonas" (habilitado por empresa): campo Vendedor en la venta.
+  const usaVendedores = hasModulo("Vendedores y Zonas")
+  // Flag por empresa: no se puede guardar la venta sin elegir vendedor.
+  const vendedorObligatorio = usaVendedores && (user?.flags?.ventas_vendedor_obligatorio ?? false)
 
   // Modo pantalla completa (kiosko POS): el modulo abarca el 100% de la pantalla.
   const [fullscreen, setFullscreen] = React.useState(false)
@@ -138,6 +145,11 @@ export default function NuevaVentaPage() {
   
   const [clienteId, setClienteId] = React.useState<string>("")
   const [clienteComboOpen, setClienteComboOpen] = React.useState(false)
+  // Vendedor de la venta (modulo Vendedores y Zonas). "" = sin vendedor.
+  const [vendedores, setVendedores] = React.useState<Vendedor[]>([])
+  const [vendedorId, setVendedorId] = React.useState<string>("")
+  // Vendedor que ES el usuario logueado (si esta vinculado): se preselecciona.
+  const [vendedorUsuarioId, setVendedorUsuarioId] = React.useState<number | null>(null)
   const [numeroFactura, setNumeroFactura] = React.useState("")
   // Fecha local (dia de negocio). NO usar toISOString(): de noche adelanta el dia.
   const [fecha, setFecha] = React.useState(hoyISO())
@@ -223,7 +235,7 @@ export default function NuevaVentaPage() {
     setLoading(true)
     try {
       console.log("[NuevaVenta] cargando datos...")
-      const [clientesRes, productosRes, almacenesRes, localizacionesRes, correlativo, cuentasRes, marcasRes, categoriasRes] = await Promise.all([
+      const [clientesRes, productosRes, almacenesRes, localizacionesRes, correlativo, cuentasRes, marcasRes, categoriasRes, vendedoresRes, vendedorUsuario] = await Promise.all([
         getClientes({ soloActivos: true }),
         getProductos(),
         getAlmacenes(),
@@ -232,7 +244,12 @@ export default function NuevaVentaPage() {
         getCuentas(),
         getMarcas(),
         getCategorias(),
+        usaVendedores ? getVendedores({ soloActivos: true }) : Promise.resolve({ data: [] as Vendedor[], error: null }),
+        usaVendedores ? getVendedorDeUsuario(user?.auth_user_id) : Promise.resolve(null),
       ])
+      setVendedores(vendedoresRes.data || [])
+      setVendedorUsuarioId(vendedorUsuario?.id ?? null)
+      if (vendedorUsuario?.id != null) setVendedorId(String(vendedorUsuario.id))
 
       console.log("[NuevaVenta] datos recibidos:", {
         clientes: clientesRes.data?.length,
@@ -864,6 +881,21 @@ export default function NuevaVentaPage() {
 
   const selectedCliente = clientes.find(c => c.id?.toString() === clienteId)
 
+  // Vendedor por defecto al cambiar de cliente: el del usuario logueado; si no,
+  // el vendedor asignado al cliente. No pisa una eleccion manual previa.
+  React.useEffect(() => {
+    if (!usaVendedores) return
+    const cliente = clientes.find(c => c.id?.toString() === clienteId)
+    const porDefecto = resolverVendedorPorDefecto({
+      vendedorUsuarioId,
+      vendedorClienteId: cliente?.vendedor_id ?? null,
+    })
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setVendedorId(porDefecto != null ? String(porDefecto) : "")
+    // Solo reacciona al cliente (y a que cargue el vendedor del usuario).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteId, vendedorUsuarioId, usaVendedores])
+
   // Stock validation
   const lineasConStockInsuficiente = lineas.filter(l => l.cantidad > l.stock_disponible)
   const hayStockInsuficiente = lineasConStockInsuficiente.length > 0 && localizacionId !== ""
@@ -988,6 +1020,33 @@ export default function NuevaVentaPage() {
       }
     }
 
+    // Bloqueo de crédito por estado del cliente (script officemart-002): bloqueo
+    // manual del admin o mora (facturas con saldo más allá de sus días de crédito).
+    if (saldoNuevo > 0 && selectedCliente?.id != null) {
+      const mora = await getFacturasVencidasCliente(selectedCliente.id, selectedCliente.dias_credito)
+      const motivoBloqueo = bloqueoCreditoCliente({
+        bloqueado: selectedCliente.bloqueado,
+        motivoBloqueo: selectedCliente.motivo_bloqueo,
+        diasCredito: selectedCliente.dias_credito,
+        facturasVencidas: mora.vencidas,
+        diasMaxVencido: mora.diasMaxVencido,
+      })
+      if (motivoBloqueo) {
+        toast({
+          title: "No se puede vender a crédito a este cliente",
+          description: `${motivoBloqueo} Cobra la venta completa o pide al administrador que revise el cliente.`,
+          variant: "destructive",
+        })
+        return
+      }
+    }
+
+    // Vendedor obligatorio (flag por empresa).
+    if (vendedorObligatorio && !vendedorId) {
+      toast({ title: "Falta el vendedor", description: "Elige el vendedor de esta venta antes de guardar.", variant: "destructive" })
+      return
+    }
+
     setSaving(true)
     try {
       const encabezado = {
@@ -1009,6 +1068,8 @@ export default function NuevaVentaPage() {
         total_venta: total,
         estado_pago: estadoPago,
         valorpago,
+        // Vendedor (modulo Vendedores y Zonas); null si la empresa no lo usa.
+        ...(usaVendedores ? { vendedor_id: vendedorId ? Number(vendedorId) : null } : {}),
       }
 
       const detalles = lineas.map(l => ({
@@ -1627,6 +1688,39 @@ export default function NuevaVentaPage() {
             <p className="text-xs text-muted-foreground mt-2">
               RTN: {selectedCliente.rtn || "N/A"}
             </p>
+          )}
+          {/* Notas especiales y bloqueo del cliente (script officemart-002). */}
+          {selectedCliente?.notas && (
+            <div className="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+              <span className="font-medium">Nota del cliente: </span>{selectedCliente.notas}
+            </div>
+          )}
+          {selectedCliente?.bloqueado && (
+            <div className="mt-2 p-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-start gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Bloqueado para crédito{selectedCliente.motivo_bloqueo ? `: ${selectedCliente.motivo_bloqueo}` : ""}. Solo ventas de contado.
+              </span>
+            </div>
+          )}
+          {/* Vendedor (modulo Vendedores y Zonas). */}
+          {usaVendedores && (
+            <div className="mt-3">
+              <Label className="text-xs text-muted-foreground">
+                Vendedor{vendedorObligatorio ? " *" : ""}
+              </Label>
+              <Select value={vendedorId || "__none__"} onValueChange={(v) => setVendedorId(v === "__none__" ? "" : v)}>
+                <SelectTrigger className="h-10 mt-1">
+                  <SelectValue placeholder="Sin vendedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin vendedor</SelectItem>
+                  {vendedores.map((v) => (
+                    <SelectItem key={v.id} value={String(v.id)}>{v.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
         </div>
 

@@ -148,7 +148,8 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
     descripcion:
       "El catálogo maestro: productos con código de barras, marca, categoría, foto, costo promedio y precio de venta sugerido.",
     queHace: [
-      "Crea y edita productos: nombre, código de barras, marca, categoría/subcategoría, foto y precio de venta sugerido.",
+      "Crea y edita productos: nombre, código de barras, marca, categoría/subcategoría, línea de producto, foto y precio de venta sugerido.",
+      "Línea de producto: un nivel de clasificación adicional e independiente de la categoría (ej. 'Suministros de impresión', 'Equipos', 'Confección'). Se crea desde el botón + junto al campo Línea, es opcional, y sirve para filtrar la lista, para reglas de precio por línea en las listas de precios y para los reportes de ventas por línea.",
       "Calculadora de precio (siempre visible en Nuevo/Editar producto): escribe el costo y el margen deseado y calcula el precio de venta; o escribe el precio de venta y calcula el margen (funciona en ambos sentidos). Al presionar 'Aplicar precio y costo' se copian el precio y el costo a los campos de registro del producto.",
       "Gestiona marcas, categorías y subcategorías desde el mismo módulo.",
       "Muestra el stock total y el costo promedio actuales (informativos).",
@@ -215,7 +216,7 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
         titulo: "Carga masiva de productos (Excel)",
         pasos: [
           "En Configuración → Productos, presiona 'Carga masiva'.",
-          "Descarga la plantilla y complétala: código de barras, nombre, categoría, marca, talla, precio de venta, costo unitario y cantidad inicial (una fila por producto). Las columnas Categoría y Marca traen una lista desplegable con los valores registrados de tu empresa (podés elegir o escribir uno nuevo). Además hay una segunda hoja «Referencias» con las categorías, marcas, subcategorías, almacenes y bodegas actuales, para usar los nombres exactos.",
+          "Descarga la plantilla y complétala: código de barras, nombre, categoría, marca, línea, talla, precio de venta, costo unitario y cantidad inicial (una fila por producto). Las columnas Categoría, Marca y Línea traen una lista desplegable con los valores registrados de tu empresa (podés elegir o escribir uno nuevo). Además hay una segunda hoja «Referencias» con las categorías, marcas, líneas, subcategorías, almacenes y bodegas actuales, para usar los nombres exactos.",
           "Elige el almacén y la bodega donde entrará el inventario inicial (solo se usan para las filas con cantidad mayor a 0).",
           "Sube el archivo: verás un resumen (nuevos, unidades, valor del inventario) y avisos (categorías/marcas sin coincidencia).",
           "Un producto se considera repetido cuando coincide el CÓDIGO de barras (la clave única). Si la fila no trae código, se usa el nombre como respaldo. Un mismo nombre con distinto código se toma como producto nuevo.",
@@ -258,7 +259,7 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
           "No, si tu empresa tiene activado el sistema de tallas (se habilita por empresa desde el panel de administración). Al crear el producto marca 'Este producto tiene tallas', elige las tallas y guarda una sola vez: el sistema crea un producto por cada talla (con su propio stock, código y precio) y los deja agrupados. En la lista de Productos y en Inventario → Valoración la prenda aparece una sola vez y se despliega para ver cada talla; el botón de editar del grupo permite cambiar precios, quitar tallas o agregar nuevas. En Nueva Venta cada talla se ve por separado con su etiqueta. Si tu empresa no maneja tallas, no verás nada de esto.",
       },
     ],
-    keywords: ["producto", "codigo de barras", "sku", "precio", "marca", "categoria", "talla", "tallas", "variantes", "grupo", "agrupar", "desplegar", "convertir en tallado", "repartir stock", "dividir unidades", "foto", "catalogo", "eliminar", "borrar", "cascada", "comprimir fotos", "imagen pesada", "resolucion", "carga lenta", "carga masiva", "importar productos", "plantilla", "excel", "masivo", "inventario inicial", "url imagen", "foto por url", "imagen de la web", "enlace foto", "copiar direccion de la imagen", "google imagenes", "buscar en google"],
+    keywords: ["producto", "codigo de barras", "sku", "precio", "marca", "categoria", "linea", "linea de producto", "talla", "tallas", "variantes", "grupo", "agrupar", "desplegar", "convertir en tallado", "repartir stock", "dividir unidades", "foto", "catalogo", "eliminar", "borrar", "cascada", "comprimir fotos", "imagen pesada", "resolucion", "carga lenta", "carga masiva", "importar productos", "plantilla", "excel", "masivo", "inventario inicial", "url imagen", "foto por url", "imagen de la web", "enlace foto", "copiar direccion de la imagen", "google imagenes", "buscar en google"],
   },
   {
     modulo: "Almacenes",
@@ -301,12 +302,17 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
     descripcion:
       "El directorio de clientes: datos de contacto, RTN para factura y fecha de nacimiento para felicitarlos.",
     queHace: [
-      "Crea y edita clientes: nombre, RTN, teléfono, dirección, fecha de nacimiento y límite de crédito.",
+      "Crea y edita clientes: nombre, RTN, teléfono, correo, dirección, fecha de nacimiento, zona, vendedor asignado, condiciones de crédito y notas.",
       "El RTN aparece en la factura del cliente.",
       "La fecha de nacimiento alimenta las alertas de cumpleaños.",
       "Límite de crédito: el máximo que el cliente puede deber a crédito. Si es mayor que 0 y una venta a crédito haría que su deuda total (lo que ya debe + esta venta) supere ese límite, la venta se bloquea en Nueva Venta (y se omite en la carga masiva). 0 o vacío = sin límite (crédito libre).",
+      "Días de crédito: el plazo en que vence cada factura a crédito. Si el cliente tiene facturas con saldo que ya pasaron ese plazo (mora), Nueva Venta no le permite otra venta a crédito hasta que se ponga al día (sí puede comprar de contado).",
+      "Bloqueo manual: el interruptor 'Bloqueado para crédito' (con su motivo) impide venderle a crédito aunque no tenga mora ni exceda su límite. Solo el administrador debería usarlo.",
+      "Notas especiales: texto libre (ej. 'Entregar solo por la mañana', 'Pide factura a nombre de X') que se muestra en Nueva Venta al elegir al cliente.",
+      "Segundo cliente (cliente relacionado): otro cliente del catálogo asociado a este (la casa matriz, o a quién se le factura). Es informativo.",
+      "Zona y vendedor: si tu empresa usa el módulo Vendedores y Zonas, cada cliente puede tener su zona y su vendedor asignado; Nueva Venta preselecciona ese vendedor y los reportes de ventas se pueden ver por zona y por vendedor.",
       "Los clientes se eligen en Nueva Venta y alimentan el ranking del Dashboard de Ventas.",
-      "Carga masiva: con 'Carga masiva' descargas una plantilla de Excel (Nombre, RTN, Dirección, Teléfono, Fecha de Nacimiento), la llenas y la subes para crear muchos clientes de una vez. Antes de cargar muestra cuántos son nuevos y cuáles se omiten por ya existir (por RTN o, si no hay RTN, por nombre).",
+      "Carga masiva: con 'Carga masiva' descargas una plantilla de Excel (Nombre, RTN, Dirección, Teléfono, Correo, Fecha de Nacimiento, Límite de Crédito, Días de Crédito, Zona, Vendedor y Notas), la llenas y la subes para crear muchos clientes de una vez. Zona y Vendedor se asocian por nombre si ya existen. Antes de cargar muestra cuántos son nuevos y cuáles se omiten por ya existir (por RTN o, si no hay RTN, por nombre).",
       "Eliminar un cliente: si NO tiene ventas registradas, se borra del catálogo. Si SÍ tiene ventas, no se borra (rompería el historial): se DESACTIVA y deja de aparecer en el punto de venta y demás listas, pero se conserva en el registro/historial de ventas. Un cliente inactivo se puede reactivar con el botón de reactivar.",
       "Marca el estado de cada cliente (Activo / Inactivo) en la lista.",
     ],
@@ -319,9 +325,10 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
         titulo: "Registrar un cliente",
         pasos: [
           "Abre Configuración → Clientes y presiona Nuevo Cliente.",
-          "Nombre (obligatorio), RTN si pedirá factura con datos fiscales, teléfono y dirección.",
+          "Nombre (obligatorio), RTN si pedirá factura con datos fiscales, teléfono, correo y dirección.",
           "Agrega la fecha de nacimiento si quieres la alerta de cumpleaños.",
-          "Opcional: pon un Límite de Crédito para topar cuánto puede deber a crédito (0 o vacío = sin límite).",
+          "Crédito (opcional): Límite de Crédito para topar cuánto puede deber (0 o vacío = sin límite) y Días de Crédito para el plazo de sus facturas. Si hace falta, actívale 'Bloqueado para crédito' con el motivo.",
+          "Opcional: zona, vendedor asignado (si usas el módulo Vendedores y Zonas), segundo cliente relacionado y notas especiales.",
           "Guarda. También puedes crear clientes al vuelo desde Nueva Venta.",
         ],
       },
@@ -356,16 +363,16 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
           "Es lo correcto. Un cliente con ventas no se elimina: se desactiva para que no aparezca en el punto de venta ni en las listas, pero se conserva en el registro de ventas para no perder la trazabilidad de esas facturas. Si ya no debería verse en ningún selector, verifica que aparezca como 'Inactivo' en Clientes.",
       },
     ],
-    keywords: ["cliente", "rtn", "cumpleaños", "directorio", "contacto", "eliminar", "borrar", "desactivar", "inactivo", "reactivar", "carga masiva", "importar", "plantilla", "excel", "masivo", "limite de credito", "credito", "cupo", "por cobrar", "cartera"],
+    keywords: ["cliente", "rtn", "cumpleaños", "directorio", "contacto", "correo", "eliminar", "borrar", "desactivar", "inactivo", "reactivar", "carga masiva", "importar", "plantilla", "excel", "masivo", "limite de credito", "credito", "cupo", "por cobrar", "cartera", "dias de credito", "mora", "vencida", "bloqueado", "bloqueo", "notas", "segundo cliente", "cliente relacionado", "zona", "vendedor"],
   },
   {
     modulo: "Proveedores",
     titulo: "Proveedores",
     descripcion: "El directorio de proveedores para órdenes de compra y gastos.",
     queHace: [
-      "Crea y edita proveedores: nombre, RTN y datos de contacto.",
-      "Se eligen al crear órdenes de compra y al registrar gastos/facturas por pagar.",
-      "Carga masiva: con 'Carga masiva' descargas una plantilla de Excel (Nombre, RTN, Contacto), la llenas y la subes para crear muchos proveedores de una vez. Muestra cuántos son nuevos y omite los que ya existen (por RTN o, si no hay RTN, por nombre).",
+      "Crea y edita proveedores: nombre, RTN (opcional: un proveedor extranjero no tiene), persona de contacto, teléfono, correo, dirección, país, moneda en que factura (Lempiras o dólares), días de crédito que otorga y notas.",
+      "Se eligen al crear órdenes de compra y al registrar gastos/facturas por pagar. Los días de crédito sirven para calcular el vencimiento por defecto de sus compras a crédito.",
+      "Carga masiva: con 'Carga masiva' descargas una plantilla de Excel (Nombre, RTN, Contacto, Teléfono, Correo, Dirección, País, Moneda, Días de Crédito), la llenas y la subes para crear muchos proveedores de una vez. Muestra cuántos son nuevos y omite los que ya existen (por RTN o, si no hay RTN, por nombre).",
     ],
     queNoHace: [
       "No lleva estado de cuenta del proveedor — el saldo por pagar vive en Finanzas → Gastos (Cuentas por Pagar).",
@@ -375,7 +382,8 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
         titulo: "Registrar un proveedor",
         pasos: [
           "Abre Configuración → Proveedores y presiona Nuevo Proveedor.",
-          "Nombre, RTN y contacto (teléfono/correo del vendedor).",
+          "Nombre (obligatorio), RTN, persona de contacto, teléfono, correo y dirección.",
+          "Opcional: país, moneda (LPS/USD), días de crédito que te otorga y notas.",
           "Guarda: ya aparece disponible en Compras y en Gastos.",
         ],
       },
@@ -383,7 +391,7 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
         titulo: "Cargar muchos proveedores desde Excel",
         pasos: [
           "En Configuración → Proveedores presiona 'Carga masiva'.",
-          "Descarga la plantilla y llénala (Nombre obligatorio; RTN y contacto opcionales).",
+          "Descarga la plantilla y llénala (Nombre obligatorio; RTN, contacto, teléfono, correo, dirección, país, moneda y días de crédito opcionales).",
           "Sube el archivo: verás cuántos son nuevos y cuáles se omiten por ya existir.",
           "Presiona 'Cargar'. Se crean los nuevos; los duplicados (por RTN o nombre) se omiten.",
         ],
@@ -396,7 +404,57 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
           "Revisa Finanzas → Gastos, vista de Cuentas por Pagar: ahí están las facturas pendientes por proveedor con su saldo y vencimiento.",
       },
     ],
-    keywords: ["proveedor", "suplidor", "compras", "contacto", "carga masiva", "importar", "plantilla", "excel", "masivo"],
+    keywords: ["proveedor", "suplidor", "compras", "contacto", "telefono", "correo", "direccion", "pais", "moneda", "dolares", "dias de credito", "carga masiva", "importar", "plantilla", "excel", "masivo"],
+  },
+  {
+    modulo: "Vendedores y Zonas",
+    titulo: "Vendedores y Zonas",
+    descripcion:
+      "El catálogo de vendedores (para asociarlos a cada venta y liquidar comisiones) y las zonas geográficas de los clientes (para reportes por zona).",
+    queHace: [
+      "Crea vendedores con nombre, teléfono y correo. Puedes vincular cada vendedor a un usuario del sistema: cuando ese usuario abra Nueva Venta, quedará preseleccionado como vendedor de la venta.",
+      "Crea zonas (ej. 'San Pedro Sula', 'Tegucigalpa Norte') y asígnalas a los clientes desde Configuración → Clientes.",
+      "En Nueva Venta aparece el campo Vendedor: se preselecciona el vendedor del usuario o, si no, el vendedor asignado al cliente; se puede cambiar por venta. Cada venta guarda su vendedor.",
+      "Con el ajuste 'Vendedor obligatorio' (lo activa el administrador de la plataforma), Nueva Venta no deja guardar sin elegir vendedor.",
+      "Un vendedor con ventas registradas no se borra: se desactiva (sus ventas conservan el vendedor para reportes y comisiones). Igual con una zona que tenga clientes.",
+    ],
+    queNoHace: [
+      "No calcula ni paga comisiones: eso lo hace el módulo de Comisiones a partir del vendedor guardado en cada venta.",
+      "No crea usuarios del sistema: un vendedor puede existir sin acceso a la app; el vínculo con un usuario es opcional y se hace desde aquí.",
+      "No aparece si el administrador de la plataforma no habilitó el módulo para tu empresa.",
+    ],
+    operaciones: [
+      {
+        titulo: "Registrar un vendedor",
+        pasos: [
+          "Abre Configuración → Vendedores y Zonas, pestaña Vendedores, y presiona Nuevo Vendedor.",
+          "Escribe el nombre y, si aplica, teléfono y correo.",
+          "Si el vendedor usa el sistema, elígelo en 'Usuario del sistema' para que Nueva Venta lo preseleccione cuando él facture.",
+          "Guarda. Desde Clientes puedes asignarle su cartera (vendedor por cliente).",
+        ],
+      },
+      {
+        titulo: "Crear zonas y asignarlas a clientes",
+        pasos: [
+          "En la pestaña Zonas presiona Nueva Zona; escribe el nombre y la ciudad.",
+          "Ve a Configuración → Clientes, edita cada cliente y elige su zona (y su vendedor).",
+          "Los reportes de ventas podrán agruparse por zona y por vendedor.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        pregunta: "No me aparece el campo Vendedor en Nueva Venta.",
+        respuesta:
+          "El módulo 'Vendedores y Zonas' se habilita por empresa desde el panel de administración de la plataforma. Pide que lo activen; luego crea al menos un vendedor y el campo aparecerá en Nueva Venta.",
+      },
+      {
+        pregunta: "¿Puedo borrar un vendedor que ya tiene ventas?",
+        respuesta:
+          "No se borra: se desactiva. Deja de aparecer para ventas nuevas, pero sus ventas anteriores conservan el vendedor para reportes y liquidación de comisiones.",
+      },
+    ],
+    keywords: ["vendedor", "vendedores", "zona", "zonas", "ruta", "cartera", "comision", "usuario vinculado", "preseleccionar vendedor", "vendedor obligatorio"],
   },
   {
     modulo: "Cuentas Bancarias",

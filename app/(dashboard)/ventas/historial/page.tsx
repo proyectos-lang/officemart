@@ -49,6 +49,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import { getClientes, getAlmacenes, getProductos, type Cliente, type Almacen, type Producto } from "@/lib/services/catalogos"
+import { getVendedores, type Vendedor } from "@/lib/services/vendedores"
 import { getCuentas, type CuentaConfig } from "@/lib/services/cuentas"
 import { useCajaSesion } from "@/lib/hooks/use-caja-sesion"
 import { ImportarVentasDialog } from "./importar-ventas-dialog"
@@ -94,6 +95,14 @@ export default function HistorialVentasPage() {
   const [ventas, setVentas] = React.useState<VentaEncabezado[]>([])
   const [clientes, setClientes] = React.useState<Cliente[]>([])
   const [almacenes, setAlmacenes] = React.useState<Almacen[]>([])
+  // Vendedores (modulo Vendedores y Zonas): la columna solo se muestra si hay.
+  const [vendedores, setVendedores] = React.useState<Vendedor[]>([])
+  const vendedorNombre = React.useMemo(() => {
+    const m = new Map<number, string>()
+    for (const v of vendedores) if (v.id != null) m.set(v.id, v.nombre)
+    return m
+  }, [vendedores])
+  const mostrarVendedor = vendedores.length > 0
   const [productos, setProductos] = React.useState<Producto[]>([])
   /**
    * Map<venta_id, "Efectivo"|"Banco"|"Mixto"|"Credito"|"Otro">. Lo poblamos en
@@ -181,18 +190,20 @@ export default function HistorialVentasPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [ventasRes, clientesRes, almacenesRes, productosRes] = await Promise.all([
+      const [ventasRes, clientesRes, almacenesRes, productosRes, vendedoresRes] = await Promise.all([
         // Carga TODAS las facturas (bucle por rangos en el servicio) para poder
         // paginar client-side por hojas de 50/100/1000.
         getVentas(),
         getClientes({ soloActivos: true }),
         getAlmacenes(),
-        getProductos()
+        getProductos(),
+        getVendedores(),
       ])
       setVentas(ventasRes.data)
       setClientes(clientesRes.data)
       setAlmacenes(almacenesRes.data)
       setProductos(productosRes.data)
+      setVendedores(vendedoresRes.data || [])
 
       // Batch (chunked en el servicio) para el metodo de pago y la comision de
       // TODAS las ventas.
@@ -1033,6 +1044,9 @@ export default function HistorialVentasPage() {
                     <TableHead className="font-semibold text-stone-700 whitespace-nowrap">N° Factura</TableHead>
                     <TableHead className="font-semibold text-stone-700 whitespace-nowrap">Fecha</TableHead>
                     <TableHead className="font-semibold text-stone-700 whitespace-nowrap">Cliente</TableHead>
+                    {mostrarVendedor && (
+                      <TableHead className="font-semibold text-stone-700 whitespace-nowrap">Vendedor</TableHead>
+                    )}
                     <TableHead className="font-semibold text-stone-700 whitespace-nowrap">Almacen</TableHead>
                     <TableHead className="font-semibold text-stone-700 text-right whitespace-nowrap">
                       <div>Total</div>
@@ -1058,7 +1072,7 @@ export default function HistorialVentasPage() {
                 <TableBody>
                   {ventasFiltradas.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
+                      <TableCell colSpan={mostrarVendedor ? 12 : 11} className="text-center text-muted-foreground py-10">
                         No hay ventas para mostrar
                       </TableCell>
                     </TableRow>
@@ -1073,6 +1087,11 @@ export default function HistorialVentasPage() {
                         <TableCell className="font-mono font-medium whitespace-nowrap">{venta.numero_factura}</TableCell>
                         <TableCell className="whitespace-nowrap">{venta.fecha_venta?.split('T')[0] || ''}</TableCell>
                         <TableCell className="whitespace-nowrap">{venta.cliente_nombre}</TableCell>
+                        {mostrarVendedor && (
+                          <TableCell className="text-muted-foreground whitespace-nowrap">
+                            {venta.vendedor_id != null ? vendedorNombre.get(venta.vendedor_id) || '—' : '—'}
+                          </TableCell>
+                        )}
                         <TableCell className="text-muted-foreground whitespace-nowrap">{venta.almacen_nombre || '-'}</TableCell>
                         <TableCell className="text-right font-medium whitespace-nowrap">{formatCurrency(venta.total_venta ?? 0)}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">

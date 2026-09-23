@@ -5,6 +5,7 @@ import { Plus, Truck, Pencil, Trash2, Loader2 } from "lucide-react"
 import { ImportarProveedoresDialog } from "./importar-proveedores-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -22,6 +23,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
 import { useToast } from "@/hooks/use-toast"
@@ -33,21 +37,30 @@ import {
 } from "@/lib/services/catalogos"
 import { useTenant } from "@/lib/hooks/use-tenant"
 
+const FORM_VACIO: Partial<Proveedor> = {
+  nombre: "",
+  rtn: "",
+  contacto: "",
+  telefono: "",
+  correo: "",
+  direccion: "",
+  pais: "",
+  moneda: "",
+  dias_credito: null,
+  notas: "",
+}
+
 export default function ProveedoresConfigPage() {
   const { toast } = useToast()
   const { ready, razonSocialId } = useTenant()
-  
+
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProveedor, setEditingProveedor] = useState<Proveedor | null>(null)
   const [saving, setSaving] = useState(false)
-  
-  const [formData, setFormData] = useState<Partial<Proveedor>>({
-    nombre: "",
-    rtn: "",
-    contacto: "",
-  })
+
+  const [formData, setFormData] = useState<Partial<Proveedor>>(FORM_VACIO)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -83,31 +96,28 @@ export default function ProveedoresConfigPage() {
   function openNewDialog() {
     setValidationErrors({})
     setEditingProveedor(null)
-    setFormData({ 
-      nombre: "", 
-      rtn: "", 
-      contacto: "",
-    })
+    setFormData(FORM_VACIO)
     setDialogOpen(true)
   }
 
   function openEditDialog(proveedor: Proveedor) {
     setValidationErrors({})
     setEditingProveedor(proveedor)
-    setFormData({ ...proveedor })
+    setFormData({ ...FORM_VACIO, ...proveedor })
     setDialogOpen(true)
   }
 
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {}
-    
+
     if (!formData.nombre?.trim()) {
       errors.nombre = "El nombre es requerido"
     }
-    if (!formData.rtn?.trim()) {
-      errors.rtn = "El RTN es requerido"
+    // El RTN es opcional: un proveedor extranjero no tiene.
+    if (formData.dias_credito != null && Number(formData.dias_credito) < 0) {
+      errors.dias_credito = "Los días de crédito no pueden ser negativos"
     }
-    
+
     setValidationErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -123,8 +133,18 @@ export default function ProveedoresConfigPage() {
     const proveedorData: Proveedor = {
       ...editingProveedor,
       nombre: formData.nombre!,
-      rtn: formData.rtn!,
-      contacto: formData.contacto || "",
+      rtn: formData.rtn || null,
+      contacto: formData.contacto || null,
+      telefono: formData.telefono || null,
+      correo: formData.correo || null,
+      direccion: formData.direccion || null,
+      pais: formData.pais || null,
+      moneda: formData.moneda || null,
+      dias_credito:
+        formData.dias_credito == null || String(formData.dias_credito).trim() === ""
+          ? null
+          : Number(formData.dias_credito),
+      notas: formData.notas || null,
     }
 
     const { error } = await saveProveedor(proveedorData, !editingProveedor)
@@ -141,7 +161,7 @@ export default function ProveedoresConfigPage() {
 
   async function handleDelete(proveedor: Proveedor) {
     if (!proveedor.id) return
-    
+
     if (!confirm(`Eliminar proveedor "${proveedor.nombre}"?`)) {
       return
     }
@@ -153,6 +173,20 @@ export default function ProveedoresConfigPage() {
       toast({ title: "Exito", description: "Proveedor eliminado" })
       loadProveedores()
     }
+  }
+
+  /** Resumen de contacto para la tabla: persona · teléfono · correo. */
+  function contactoResumen(p: Proveedor): string {
+    return [p.contacto, p.telefono, p.correo].filter(Boolean).join(" · ")
+  }
+
+  /** Condiciones comerciales: moneda y días de crédito. */
+  function condicionesResumen(p: Proveedor): string {
+    const partes: string[] = []
+    if (p.moneda) partes.push(p.moneda)
+    if (p.dias_credito != null && p.dias_credito > 0) partes.push(`${p.dias_credito} días`)
+    else if (p.dias_credito === 0) partes.push("Contado")
+    return partes.join(" · ")
   }
 
   return (
@@ -199,8 +233,11 @@ export default function ProveedoresConfigPage() {
                     <div className="flex justify-between items-start">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{proveedor.nombre}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{proveedor.rtn}</p>
-                        <p className="text-xs text-muted-foreground truncate mt-1">{proveedor.contacto || "Sin contacto"}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{proveedor.rtn || "Sin RTN"}</p>
+                        <p className="text-xs text-muted-foreground truncate mt-1">{contactoResumen(proveedor) || "Sin contacto"}</p>
+                        {condicionesResumen(proveedor) && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{condicionesResumen(proveedor)}</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-1 ml-2">
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(proveedor)}>
@@ -222,15 +259,20 @@ export default function ProveedoresConfigPage() {
                     <TableHead>Nombre</TableHead>
                     <TableHead>RTN</TableHead>
                     <TableHead>Contacto</TableHead>
+                    <TableHead>Condiciones</TableHead>
                     <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {proveedores.map((proveedor) => (
                     <TableRow key={proveedor.id}>
-                      <TableCell className="font-medium">{proveedor.nombre}</TableCell>
-                      <TableCell className="font-mono text-sm">{proveedor.rtn}</TableCell>
-                      <TableCell>{proveedor.contacto || "-"}</TableCell>
+                      <TableCell className="font-medium">
+                        {proveedor.nombre}
+                        {proveedor.pais && <div className="text-[11px] text-muted-foreground">{proveedor.pais}</div>}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">{proveedor.rtn || "-"}</TableCell>
+                      <TableCell className="text-sm">{contactoResumen(proveedor) || "-"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{condicionesResumen(proveedor) || "-"}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Button
@@ -262,7 +304,7 @@ export default function ProveedoresConfigPage() {
 
       {/* Proveedor Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingProveedor ? "Editar Proveedor" : "Nuevo Proveedor"}</DialogTitle>
             <DialogDescription>
@@ -289,32 +331,118 @@ export default function ProveedoresConfigPage() {
               )}
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="rtn">
-                RTN <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="rtn"
-                value={formData.rtn || ""}
-                onChange={(e) => {
-                  setFormData({ ...formData, rtn: e.target.value })
-                  if (validationErrors.rtn) setValidationErrors(prev => ({ ...prev, rtn: "" }))
-                }}
-                className={validationErrors.rtn ? "border-destructive" : ""}
-                placeholder="0801-1234-56789"
-              />
-              {validationErrors.rtn && (
-                <p className="text-sm text-destructive">{validationErrors.rtn}</p>
-              )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="rtn">
+                  RTN <span className="text-xs font-normal text-muted-foreground">(opcional)</span>
+                </Label>
+                <Input
+                  id="rtn"
+                  value={formData.rtn || ""}
+                  onChange={(e) => setFormData({ ...formData, rtn: e.target.value })}
+                  placeholder="0801-1234-56789"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="pais">País</Label>
+                <Input
+                  id="pais"
+                  value={formData.pais || ""}
+                  onChange={(e) => setFormData({ ...formData, pais: e.target.value })}
+                  placeholder="Honduras"
+                />
+              </div>
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="contacto">Contacto</Label>
+              <Label htmlFor="contacto">Persona de contacto</Label>
               <Input
                 id="contacto"
                 value={formData.contacto || ""}
                 onChange={(e) => setFormData({ ...formData, contacto: e.target.value })}
-                placeholder="Telefono o correo"
+                placeholder="Nombre del vendedor o ejecutivo"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="telefono">Teléfono</Label>
+                <Input
+                  id="telefono"
+                  type="tel"
+                  inputMode="tel"
+                  value={formData.telefono || ""}
+                  onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                  placeholder="9999-9999"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="correo">Correo</Label>
+                <Input
+                  id="correo"
+                  type="email"
+                  inputMode="email"
+                  value={formData.correo || ""}
+                  onChange={(e) => setFormData({ ...formData, correo: e.target.value })}
+                  placeholder="ventas@proveedor.com"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="direccion">Dirección</Label>
+              <Input
+                id="direccion"
+                value={formData.direccion || ""}
+                onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
+                placeholder="Dirección física"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Moneda en que factura</Label>
+                <Select
+                  value={formData.moneda || "__none__"}
+                  onValueChange={(v) => setFormData({ ...formData, moneda: v === "__none__" ? "" : v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="Sin definir" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin definir</SelectItem>
+                    <SelectItem value="LPS">Lempiras (LPS)</SelectItem>
+                    <SelectItem value="USD">Dólares (USD)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="dias-credito">Días de crédito que otorga</Label>
+                <Input
+                  id="dias-credito"
+                  type="number"
+                  min={0}
+                  step="1"
+                  inputMode="numeric"
+                  value={formData.dias_credito ?? ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, dias_credito: e.target.value === "" ? null : Number(e.target.value) })
+                  }
+                  className={validationErrors.dias_credito ? "border-destructive" : ""}
+                  placeholder="0 = contado"
+                />
+                {validationErrors.dias_credito && (
+                  <p className="text-sm text-destructive">{validationErrors.dias_credito}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="notas">Notas</Label>
+              <Textarea
+                id="notas"
+                rows={2}
+                value={formData.notas || ""}
+                onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
+                placeholder="Condiciones especiales, horarios de entrega, etc."
               />
             </div>
           </div>

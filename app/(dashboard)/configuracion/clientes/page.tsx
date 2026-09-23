@@ -1,7 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Users, Pencil, Trash2, Loader2, Cake, RotateCcw } from "lucide-react"
+import { Plus, Users, Pencil, Trash2, Loader2, Cake, RotateCcw, Ban } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { getZonas, getVendedores, type Zona, type Vendedor } from "@/lib/services/vendedores"
 import { ImportarClientesDialog } from "./importar-clientes-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -55,6 +58,10 @@ export default function ClientesConfigPage() {
   const { ready, razonSocialId } = useTenant()
   const { hasModulo } = useAuth()
   const mostrarListas = hasModulo("Listas de Precios")
+  // Modulo "Vendedores y Zonas" (script officemart-002): zona y vendedor por cliente.
+  const mostrarVendedores = hasModulo("Vendedores y Zonas")
+  const [zonas, setZonas] = useState<Zona[]>([])
+  const [vendedores, setVendedores] = useState<Vendedor[]>([])
 
   const [listasPrecios, setListasPrecios] = useState<ListaPrecio[]>([])
   // Lista asignada al cliente en edicion ("" = precio normal del maestro).
@@ -66,13 +73,23 @@ export default function ClientesConfigPage() {
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null)
   const [saving, setSaving] = useState(false)
   
-  const [formData, setFormData] = useState<Partial<Cliente>>({
+  const formVacio: Partial<Cliente> = {
     nombre: "",
     rtn: "",
     direccion: "",
     telefono: "",
+    correo: "",
     fecha_nacimiento: "",
-  })
+    limite_credito: null,
+    dias_credito: null,
+    cliente_relacionado_id: null,
+    bloqueado: false,
+    motivo_bloqueo: "",
+    notas: "",
+    zona_id: null,
+    vendedor_id: null,
+  }
+  const [formData, setFormData] = useState<Partial<Cliente>>(formVacio)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -91,6 +108,13 @@ export default function ClientesConfigPage() {
   useEffect(() => {
     if (ready && mostrarListas) getListasPrecios().then((r) => setListasPrecios(r.data))
   }, [ready, mostrarListas])
+
+  // Zonas y vendedores (solo si la empresa tiene el modulo habilitado).
+  useEffect(() => {
+    if (!ready || !mostrarVendedores) return
+    getZonas().then((r) => setZonas(r.data))
+    getVendedores().then((r) => setVendedores(r.data))
+  }, [ready, mostrarVendedores])
 
   async function loadClientes() {
     setLoading(true)
@@ -113,13 +137,7 @@ export default function ClientesConfigPage() {
   function openNewDialog() {
     setValidationErrors({})
     setEditingCliente(null)
-    setFormData({
-      nombre: "",
-      rtn: "",
-      direccion: "",
-      telefono: "",
-      fecha_nacimiento: "",
-    })
+    setFormData(formVacio)
     setListaClienteId("")
     setDialogOpen(true)
   }
@@ -170,6 +188,18 @@ export default function ClientesConfigPage() {
         formData.limite_credito == null || String(formData.limite_credito).trim() === ""
           ? null
           : Number(formData.limite_credito),
+      // Campos del script officemart-002 (el servicio sanea "" -> null).
+      correo: formData.correo || null,
+      dias_credito:
+        formData.dias_credito == null || String(formData.dias_credito).trim() === ""
+          ? null
+          : Number(formData.dias_credito),
+      cliente_relacionado_id: formData.cliente_relacionado_id ?? null,
+      bloqueado: !!formData.bloqueado,
+      motivo_bloqueo: formData.bloqueado ? (formData.motivo_bloqueo || null) : null,
+      notas: formData.notas || null,
+      zona_id: mostrarVendedores ? (formData.zona_id ?? null) : (editingCliente?.zona_id ?? null),
+      vendedor_id: mostrarVendedores ? (formData.vendedor_id ?? null) : (editingCliente?.vendedor_id ?? null),
     }
 
     const { data: guardado, error } = await saveCliente(clienteData, !editingCliente)
@@ -327,7 +357,8 @@ export default function ClientesConfigPage() {
                     <TableHead>Telefono</TableHead>
                     <TableHead>Fecha Nacimiento</TableHead>
                     <TableHead>Direccion</TableHead>
-                    <TableHead className="text-right">Límite Crédito</TableHead>
+                    <TableHead className="text-right">Crédito</TableHead>
+                    {mostrarVendedores && <TableHead>Zona / Vendedor</TableHead>}
                     <TableHead>Estado</TableHead>
                     <TableHead className="w-24"></TableHead>
                   </TableRow>
@@ -358,13 +389,30 @@ export default function ClientesConfigPage() {
                           {cliente.limite_credito && cliente.limite_credito > 0
                             ? formatCurrency(cliente.limite_credito)
                             : <span className="text-stone-400">Sin límite</span>}
-                        </TableCell>
-                        <TableCell>
-                          {inactivo ? (
-                            <Badge variant="outline" className="border-stone-300 bg-stone-100 text-stone-500">Inactivo</Badge>
-                          ) : (
-                            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Activo</Badge>
+                          {cliente.dias_credito != null && cliente.dias_credito > 0 && (
+                            <div className="text-[11px] text-muted-foreground">{cliente.dias_credito} días</div>
                           )}
+                        </TableCell>
+                        {mostrarVendedores && (
+                          <TableCell className="text-sm text-muted-foreground">
+                            {zonas.find((z) => z.id === cliente.zona_id)?.nombre || "—"}
+                            {" / "}
+                            {vendedores.find((v) => v.id === cliente.vendedor_id)?.nombre || "—"}
+                          </TableCell>
+                        )}
+                        <TableCell>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {inactivo ? (
+                              <Badge variant="outline" className="border-stone-300 bg-stone-100 text-stone-500">Inactivo</Badge>
+                            ) : (
+                              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Activo</Badge>
+                            )}
+                            {cliente.bloqueado && (
+                              <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700 gap-1" title={cliente.motivo_bloqueo || "Bloqueado para crédito"}>
+                                <Ban className="h-3 w-3" /> Crédito
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
@@ -458,6 +506,18 @@ export default function ClientesConfigPage() {
               />
             </div>
 
+            <div className="grid gap-2">
+              <Label htmlFor="correo">Correo</Label>
+              <Input
+                id="correo"
+                type="email"
+                inputMode="email"
+                value={formData.correo || ""}
+                onChange={(e) => setFormData({ ...formData, correo: e.target.value })}
+                placeholder="cliente@correo.com"
+              />
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid gap-2">
                 <Label htmlFor="telefono">Telefono</Label>
@@ -511,6 +571,120 @@ export default function ClientesConfigPage() {
                   Máximo que puede deber a crédito. Déjalo en 0 o vacío para no limitar.
                 </p>
               </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="dias-credito">
+                  Días de Crédito
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                </Label>
+                <Input
+                  id="dias-credito"
+                  type="number"
+                  min={0}
+                  step="1"
+                  inputMode="numeric"
+                  value={formData.dias_credito ?? ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, dias_credito: e.target.value === "" ? null : Number(e.target.value) })
+                  }
+                  placeholder="Ej: 30"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Plazo de sus facturas a crédito. Con facturas vencidas no se le vende a crédito.
+                </p>
+              </div>
+            </div>
+
+            {/* Bloqueo manual de crédito (script officemart-002). */}
+            <div className="rounded-lg border border-stone-200 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label htmlFor="bloqueado" className="flex items-center gap-1.5">
+                    <Ban className="h-3.5 w-3.5 text-red-600" /> Bloqueado para crédito
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">Solo podrá comprar de contado hasta que se desbloquee.</p>
+                </div>
+                <Switch
+                  id="bloqueado"
+                  checked={!!formData.bloqueado}
+                  onCheckedChange={(v) => setFormData({ ...formData, bloqueado: v })}
+                />
+              </div>
+              {formData.bloqueado && (
+                <Input
+                  value={formData.motivo_bloqueo || ""}
+                  onChange={(e) => setFormData({ ...formData, motivo_bloqueo: e.target.value })}
+                  placeholder="Motivo del bloqueo (ej. cheque devuelto)"
+                />
+              )}
+            </div>
+
+            {mostrarVendedores && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label>Zona</Label>
+                  <Select
+                    value={formData.zona_id ? String(formData.zona_id) : "__none__"}
+                    onValueChange={(v) => setFormData({ ...formData, zona_id: v === "__none__" ? null : Number(v) })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Sin zona" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sin zona</SelectItem>
+                      {zonas.filter((z) => z.activo !== false || z.id === formData.zona_id).map((z) => (
+                        <SelectItem key={z.id} value={String(z.id)}>{z.nombre}{z.ciudad ? ` · ${z.ciudad}` : ""}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Vendedor asignado</Label>
+                  <Select
+                    value={formData.vendedor_id ? String(formData.vendedor_id) : "__none__"}
+                    onValueChange={(v) => setFormData({ ...formData, vendedor_id: v === "__none__" ? null : Number(v) })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Sin vendedor" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sin vendedor</SelectItem>
+                      {vendedores.filter((v) => v.activo !== false || v.id === formData.vendedor_id).map((v) => (
+                        <SelectItem key={v.id} value={String(v.id)}>{v.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-2">
+              <Label>
+                Segundo cliente (relacionado)
+                <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+              </Label>
+              <Select
+                value={formData.cliente_relacionado_id ? String(formData.cliente_relacionado_id) : "__none__"}
+                onValueChange={(v) => setFormData({ ...formData, cliente_relacionado_id: v === "__none__" ? null : Number(v) })}
+              >
+                <SelectTrigger><SelectValue placeholder="Ninguno" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Ninguno</SelectItem>
+                  {clientes
+                    .filter((c) => c.id != null && c.id !== editingCliente?.id && c.activo !== false)
+                    .map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.nombre}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">Casa matriz o cliente a quien se le factura. Informativo.</p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="notas">Notas especiales</Label>
+              <Textarea
+                id="notas"
+                rows={2}
+                value={formData.notas || ""}
+                onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
+                placeholder="Se muestran en Nueva Venta al elegir al cliente"
+              />
             </div>
 
             {mostrarListas && (

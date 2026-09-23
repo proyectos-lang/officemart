@@ -49,6 +49,12 @@ export interface FeatureFlags {
    * ciegas" sin ver cuánto hay. El admin ve todo. Default false.
    */
   caja_ocultar_saldo: boolean
+  /**
+   * Si es true, Nueva Venta exige elegir un vendedor (módulo "Vendedores y
+   * Zonas") antes de guardar. Si es false, el vendedor es opcional (se
+   * preselecciona el del usuario o el del cliente cuando existe). Default false.
+   */
+  ventas_vendedor_obligatorio: boolean
 }
 
 export const DEFAULT_FLAGS: FeatureFlags = {
@@ -60,6 +66,7 @@ export const DEFAULT_FLAGS: FeatureFlags = {
   facturacion_cai: false,
   ventas_bloquear_precio_descuento: false,
   caja_ocultar_saldo: false,
+  ventas_vendedor_obligatorio: false,
 }
 
 /** Etiquetas legibles para el portal (que flags se pueden togglear por empresa). */
@@ -72,6 +79,7 @@ export const FLAG_LABELS: Record<keyof FeatureFlags, string> = {
   facturacion_cai: "Impresión de factura CAI (SAR Honduras)",
   ventas_bloquear_precio_descuento: "Bloquear precio y descuento en ventas (excepto admin)",
   caja_ocultar_saldo: "Ocultar saldo de caja chica (excepto admin)",
+  ventas_vendedor_obligatorio: "Vendedor obligatorio en Nueva Venta",
 }
 
 /**
@@ -113,5 +121,9 @@ export function mergeFlags(config: Record<string, unknown> | null | undefined): 
       c.caja_ocultar_saldo === undefined
         ? DEFAULT_FLAGS.caja_ocultar_saldo
         : Boolean(c.caja_ocultar_saldo),
+    ventas_vendedor_obligatorio:
+      c.ventas_vendedor_obligatorio === undefined
+        ? DEFAULT_FLAGS.ventas_vendedor_obligatorio
+        : Boolean(c.ventas_vendedor_obligatorio),
   }
 }

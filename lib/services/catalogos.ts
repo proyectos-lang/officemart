@@ -18,12 +18,32 @@ export interface Producto {
   categoria_id?: number | null
   /** Opcional: el producto puede tener solo categoria principal. */
   subcategoria_id?: number | null
+  /**
+   * Linea de producto (nivel de clasificacion adicional, independiente de la
+   * categoria; script officemart-002). Opcional. Sirve para precios por linea
+   * y reportes por linea.
+   */
+  linea_id?: number | null
   marca_nombre?: string
   categoria_nombre?: string
   /** Nombre flat de la subcategoria (join virtual, no se persiste). */
   subcategoria_nombre?: string | null
+  /** Nombre flat de la linea (se resuelve en la app, no se persiste). */
+  linea_nombre?: string | null
   created_at?: string
   updated_at?: string
+}
+
+/**
+ * Linea de producto: clasificacion transversal (ej. "Suministros de impresion",
+ * "Equipos", "Confeccion") que NO depende de la categoria. Multi-tenant.
+ */
+export interface LineaProducto {
+  id?: number
+  nombre: string
+  descripcion?: string | null
+  activo?: boolean
+  created_at?: string
 }
 
 /**
@@ -85,6 +105,19 @@ export interface Cliente {
    * total supere este monto se bloquea. Columna del script 064.
    */
   limite_credito?: number | null
+  // ----- Campos del script officemart-002 (todos opcionales) -----
+  /** Notas especiales que se muestran al elegir el cliente en Nueva Venta. */
+  notas?: string | null
+  correo?: string | null
+  /** Dias de credito: una factura a credito vence a los N dias. Null = sin plazo. */
+  dias_credito?: number | null
+  /** "Segundo cliente": cliente relacionado (a quien se factura / casa matriz). */
+  cliente_relacionado_id?: number | null
+  /** Bloqueado: no se le vende a credito (con motivo). */
+  bloqueado?: boolean | null
+  motivo_bloqueo?: string | null
+  zona_id?: number | null
+  vendedor_id?: number | null
   /**
    * Virtual (no es columna): true si el cliente esta activo. Un cliente con
    * ventas no se borra, se DESACTIVA (tabla `clientes_inactivos`, script 044) y
@@ -97,8 +130,20 @@ export interface Cliente {
 export interface Proveedor {
   id?: number
   nombre: string
-  rtn: string
-  contacto: string
+  /** RTN opcional (un proveedor extranjero no tiene). */
+  rtn?: string | null
+  /** Persona de contacto (texto libre). */
+  contacto?: string | null
+  // ----- Campos del script officemart-002 (todos opcionales) -----
+  correo?: string | null
+  telefono?: string | null
+  direccion?: string | null
+  notas?: string | null
+  /** 'LPS' | 'USD' */
+  moneda?: string | null
+  pais?: string | null
+  /** Dias de credito que otorga: vencimiento por defecto de sus compras a credito. */
+  dias_credito?: number | null
   created_at?: string
 }
 
@@ -154,11 +199,13 @@ export async function getProductos(): Promise<{ data: Producto[]; error: string 
     if (res.error) return { data: [], error: res.error.message }
 
     // Flatten join data
+    const lineaNombre = await getLineasNombreMap()
     const productos = (res.data || []).map((p: any) => ({
       ...p,
       marca_nombre: p.marcas?.nombre || null,
       categoria_nombre: p.categorias?.nombre || null,
       subcategoria_nombre: p.subcategorias?.nombre || null,
+      linea_nombre: p.linea_id != null ? lineaNombre.get(Number(p.linea_id)) ?? null : null,
       marcas: undefined,
       categorias: undefined,
       subcategorias: undefined,
@@ -169,6 +216,18 @@ export async function getProductos(): Promise<{ data: Producto[]; error: string 
     console.error('[Supabase] Error obteniendo productos:', err)
     return { data: [], error: 'Error de conexion' }
   }
+}
+
+/**
+ * Mapa id -> nombre de las lineas del tenant. `productos.linea_id` no lleva
+ * FK (columna agregada sin constraints), asi que PostgREST no puede embeber
+ * `lineas(nombre)`: el nombre se resuelve aqui. Vacio si la tabla no existe.
+ */
+async function getLineasNombreMap(): Promise<Map<number, string>> {
+  const { data } = await getLineasProducto()
+  const mapa = new Map<number, string>()
+  for (const l of data) if (l.id != null) mapa.set(l.id, l.nombre)
+  return mapa
 }
 
 /**
@@ -235,11 +294,13 @@ export async function buscarProductos(query: string): Promise<{ data: Producto[]
     }
     if (res.error) return { data: [], error: res.error.message }
 
+    const lineaNombre = await getLineasNombreMap()
     const productos = (res.data || []).map((p: any) => ({
       ...p,
       marca_nombre: p.marcas?.nombre || null,
       categoria_nombre: p.categorias?.nombre || null,
       subcategoria_nombre: p.subcategorias?.nombre || null,
+      linea_nombre: p.linea_id != null ? lineaNombre.get(Number(p.linea_id)) ?? null : null,
       marcas: undefined,
       categorias: undefined,
       subcategorias: undefined,
@@ -283,6 +344,7 @@ export async function saveProducto(
       marca_nombre,
       categoria_nombre,
       subcategoria_nombre,
+      linea_nombre,
       ...cleanProducto
     } = producto
 
@@ -292,6 +354,11 @@ export async function saveProducto(
     // asignada, se manda y se persiste normal.
     if (cleanProducto.subcategoria_id == null) {
       delete (cleanProducto as { subcategoria_id?: number | null }).subcategoria_id
+    }
+    // Misma regla para la linea (columna del script officemart-002): al editar
+    // un producto que tenia linea y se le quita, se manda null explicito.
+    if (cleanProducto.linea_id === undefined || (isNew && cleanProducto.linea_id == null)) {
+      delete (cleanProducto as { linea_id?: number | null }).linea_id
     }
 
     // Talla es opcional (columna nueva, migracion 033). Solo se envia si tiene
@@ -929,6 +996,167 @@ export async function deleteSubcategoria(
   }
 }
 
+// ==================== LINEAS DE PRODUCTO ====================
+
+function esTablaLineasAusente(err: { message?: string; code?: string } | null): boolean {
+  if (!err) return false
+  const msg = (err.message || '').toLowerCase()
+  return (
+    err.code === '42P01' ||
+    err.code === 'PGRST205' ||
+    /relation .*lineas.* does not exist/.test(msg) ||
+    msg.includes('could not find the table')
+  )
+}
+
+/**
+ * Lineas de producto del tenant (script officemart-002). Si la tabla no
+ * existe todavia devuelve vacio sin error (la UI oculta la funcion).
+ */
+export async function getLineasProducto(
+  opts: { soloActivas?: boolean } = {}
+): Promise<{ data: LineaProducto[]; error: string | null }> {
+  if (!isSupabaseConfigured()) {
+    const saved = localStorage.getItem('lineas')
+    let lineas: LineaProducto[] = saved ? JSON.parse(saved) : []
+    if (opts.soloActivas) lineas = lineas.filter((l) => l.activo !== false)
+    return { data: lineas, error: null }
+  }
+
+  const supabase = createClient()
+  if (!supabase) return { data: [], error: 'Cliente no disponible' }
+
+  try {
+    let query = supabase.from('lineas').select('*').order('nombre', { ascending: true })
+    if (opts.soloActivas) query = query.eq('activo', true)
+    const { data, error } = await query
+    if (error) {
+      if (esTablaLineasAusente(error)) return { data: [], error: null }
+      return { data: [], error: error.message }
+    }
+    return { data: (data || []) as LineaProducto[], error: null }
+  } catch (err) {
+    console.error('[Supabase] Error obteniendo lineas:', err)
+    return { data: [], error: 'Error de conexion' }
+  }
+}
+
+export async function createLineaProducto(
+  nombre: string,
+  descripcion?: string | null
+): Promise<{ data: LineaProducto | null; error: string | null }> {
+  const limpio = (nombre || '').trim()
+  if (!limpio) return { data: null, error: 'El nombre es requerido' }
+
+  if (!isSupabaseConfigured()) {
+    const saved = localStorage.getItem('lineas')
+    const lineas: LineaProducto[] = saved ? JSON.parse(saved) : []
+    const nueva: LineaProducto = { id: Date.now(), nombre: limpio, descripcion: descripcion ?? null, activo: true }
+    lineas.push(nueva)
+    localStorage.setItem('lineas', JSON.stringify(lineas))
+    return { data: nueva, error: null }
+  }
+
+  const supabase = createClient()
+  if (!supabase) return { data: null, error: 'Cliente no disponible' }
+
+  try {
+    const stamp = await getTenantStamp(supabase)
+    if (!isValidStamp(stamp)) return { data: null, error: SESION_INVALIDA_ERROR }
+
+    const { data, error } = await supabase
+      .from('lineas')
+      .insert({ nombre: limpio, descripcion: (descripcion || '').trim() || null, activo: true, ...stamp })
+      .select()
+      .single()
+    if (error) {
+      if (esTablaLineasAusente(error)) {
+        return { data: null, error: 'Lineas de producto pendientes: aplica scripts/officemart-002-cimientos.sql.' }
+      }
+      return { data: null, error: error.message }
+    }
+    return { data: data as LineaProducto, error: null }
+  } catch (err) {
+    console.error('[Supabase] Error creando linea:', err)
+    return { data: null, error: 'Error de conexion' }
+  }
+}
+
+export async function updateLineaProducto(
+  id: number,
+  cambios: { nombre?: string; descripcion?: string | null; activo?: boolean }
+): Promise<{ data: LineaProducto | null; error: string | null }> {
+  if (!isSupabaseConfigured()) {
+    const saved = localStorage.getItem('lineas')
+    const lineas: LineaProducto[] = saved ? JSON.parse(saved) : []
+    const idx = lineas.findIndex((l) => l.id === id)
+    if (idx < 0) return { data: null, error: 'No encontrada' }
+    lineas[idx] = { ...lineas[idx], ...cambios }
+    localStorage.setItem('lineas', JSON.stringify(lineas))
+    return { data: lineas[idx], error: null }
+  }
+
+  const supabase = createClient()
+  if (!supabase) return { data: null, error: 'Cliente no disponible' }
+
+  try {
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (cambios.nombre !== undefined) {
+      const limpio = cambios.nombre.trim()
+      if (!limpio) return { data: null, error: 'El nombre es requerido' }
+      patch.nombre = limpio
+    }
+    if (cambios.descripcion !== undefined) patch.descripcion = (cambios.descripcion || '').trim() || null
+    if (cambios.activo !== undefined) patch.activo = cambios.activo
+
+    const { data, error } = await supabase.from('lineas').update(patch).eq('id', id).select().single()
+    if (error) return { data: null, error: error.message }
+    return { data: data as LineaProducto, error: null }
+  } catch (err) {
+    console.error('[Supabase] Error actualizando linea:', err)
+    return { data: null, error: 'Error de conexion' }
+  }
+}
+
+/**
+ * Borra una linea sin productos; si tiene productos asignados la DESACTIVA
+ * (los productos conservan su linea para reportes historicos).
+ */
+export async function deleteLineaProducto(
+  id: number
+): Promise<{ success: boolean; modo: 'borrado' | 'desactivado' | null; error: string | null }> {
+  if (!isSupabaseConfigured()) {
+    const saved = localStorage.getItem('lineas')
+    const lineas: LineaProducto[] = saved ? JSON.parse(saved) : []
+    localStorage.setItem('lineas', JSON.stringify(lineas.filter((l) => l.id !== id)))
+    return { success: true, modo: 'borrado', error: null }
+  }
+
+  const supabase = createClient()
+  if (!supabase) return { success: false, modo: null, error: 'Cliente no disponible' }
+
+  try {
+    const { count } = await supabase
+      .from('productos')
+      .select('id', { count: 'exact', head: true })
+      .eq('linea_id', id)
+    if ((count || 0) > 0) {
+      const { error } = await supabase
+        .from('lineas')
+        .update({ activo: false, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) return { success: false, modo: null, error: error.message }
+      return { success: true, modo: 'desactivado', error: null }
+    }
+    const { error } = await supabase.from('lineas').delete().eq('id', id)
+    if (error) return { success: false, modo: null, error: error.message }
+    return { success: true, modo: 'borrado', error: null }
+  } catch (err) {
+    console.error('[Supabase] Error eliminando linea:', err)
+    return { success: false, modo: null, error: 'Error de conexion' }
+  }
+}
+
 // ==================== ALMACENES ====================
 
 export async function getAlmacenes(): Promise<{ data: Almacen[]; error: string | null }> {
@@ -1288,7 +1516,34 @@ function sanitizeClientePayload(
       raw.limite_credito == null || Number.isNaN(Number(raw.limite_credito))
         ? null
         : Math.max(0, Number(raw.limite_credito)),
+    // Campos del script officemart-002 (opcionales).
+    notas: blank(raw.notas) as Cliente["notas"],
+    correo: blank(raw.correo) as Cliente["correo"],
+    motivo_bloqueo: blank(raw.motivo_bloqueo) as Cliente["motivo_bloqueo"],
+    dias_credito:
+      raw.dias_credito == null || raw.dias_credito === ('' as unknown) || Number.isNaN(Number(raw.dias_credito))
+        ? null
+        : Math.max(0, Math.floor(Number(raw.dias_credito))),
+    cliente_relacionado_id: raw.cliente_relacionado_id ? Number(raw.cliente_relacionado_id) : null,
+    zona_id: raw.zona_id ? Number(raw.zona_id) : null,
+    vendedor_id: raw.vendedor_id ? Number(raw.vendedor_id) : null,
+    bloqueado: raw.bloqueado == null ? null : Boolean(raw.bloqueado),
   }
+}
+
+/** Columnas de `clientes` que pueden faltar (scripts 010, 064, officemart-002). */
+const COLS_CLIENTE_OPCIONALES =
+  /telefono|fecha_nacimiento|limite_credito|notas|correo|dias_credito|cliente_relacionado_id|bloqueado|motivo_bloqueo|zona_id|vendedor_id/i
+
+/** Quita del payload las columnas opcionales (para reintentar en bases sin ellas). */
+function sinColumnasOpcionalesCliente(data: Omit<Cliente, 'id'>): Omit<Cliente, 'id'> {
+  const {
+    telefono: _t, fecha_nacimiento: _f, limite_credito: _l,
+    notas: _n, correo: _c, dias_credito: _d, cliente_relacionado_id: _r,
+    bloqueado: _b, motivo_bloqueo: _m, zona_id: _z, vendedor_id: _v,
+    ...resto
+  } = data
+  return resto
 }
 
 export async function saveCliente(
@@ -1335,20 +1590,17 @@ export async function saveCliente(
         .select()
         .single()
 
-      // Fallback: si las columnas `telefono`/`fecha_nacimiento` aun no
-      // existen (migracion 010 pendiente), reintentamos sin esos campos
-      // para no bloquear la creacion del cliente. El stamp con
-      // razon_social_id se mantiene intacto.
-      if (error && /telefono|fecha_nacimiento|limite_credito/i.test(error.message || '')) {
+      // Fallback: si alguna columna opcional aun no existe (scripts 010/064/
+      // officemart-002 pendientes), reintentamos sin esos campos para no
+      // bloquear la creacion del cliente. El stamp con razon_social_id se
+      // mantiene intacto.
+      if (error && COLS_CLIENTE_OPCIONALES.test(error.message || '')) {
         console.warn(
-          '[saveCliente] Columnas telefono/fecha_nacimiento/limite_credito ausentes. ' +
-          'Aplica scripts/010 y scripts/064.'
+          '[saveCliente] Columnas opcionales ausentes. Aplica scripts/010, 064 y officemart-002.'
         )
-        const { telefono: _t, fecha_nacimiento: _f, limite_credito: _l, ...clienteSinCRM } =
-          clienteData
         const retry = await supabase
           .from('clientes')
-          .insert({ ...clienteSinCRM, ...stamp })
+          .insert({ ...sinColumnasOpcionalesCliente(clienteData), ...stamp })
           .select()
           .single()
         data = retry.data
@@ -1370,15 +1622,11 @@ export async function saveCliente(
         .single()
 
       // Mismo fallback que en insert.
-      if (error && /telefono|fecha_nacimiento|limite_credito/i.test(error.message || '')) {
-        console.warn(
-          '[saveCliente] Columnas telefono/fecha_nacimiento/limite_credito ausentes (update).'
-        )
-        const { telefono: _t, fecha_nacimiento: _f, limite_credito: _l, ...clienteSinCRM } =
-          clienteData
+      if (error && COLS_CLIENTE_OPCIONALES.test(error.message || '')) {
+        console.warn('[saveCliente] Columnas opcionales ausentes (update).')
         const retry = await supabase
           .from('clientes')
-          .update(clienteSinCRM)
+          .update(sinColumnasOpcionalesCliente(clienteData))
           .eq('id', cliente.id)
           .select()
           .single()
@@ -1536,6 +1784,9 @@ export async function saveProveedor(
   if (!supabase) return { data: null, error: 'Cliente no disponible' }
 
   try {
+    const { id, created_at: _c, ...rawData } = proveedor
+    const proveedorData = sanitizeProveedorPayload(rawData)
+
     if (isNew) {
       const stamp = await getTenantStamp(supabase)
       if (!isValidStamp(stamp)) {
@@ -1543,25 +1794,47 @@ export async function saveProveedor(
         return { data: null, error: SESION_INVALIDA_ERROR }
       }
 
-      const { id, ...proveedorData } = proveedor
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('proveedores')
         .insert({ ...proveedorData, ...stamp })
         .select()
         .single()
+
+      // Fallback: columnas del script officemart-002 ausentes -> reintentar sin ellas.
+      if (error && COLS_PROVEEDOR_OPCIONALES.test(error.message || '')) {
+        console.warn('[saveProveedor] Columnas opcionales ausentes. Aplica scripts/officemart-002-cimientos.sql.')
+        const retry = await supabase
+          .from('proveedores')
+          .insert({ ...sinColumnasOpcionalesProveedor(proveedorData), ...stamp })
+          .select()
+          .single()
+        data = retry.data
+        error = retry.error
+      }
 
       if (error) return { data: null, error: error.message }
       return { data, error: null }
     } else {
       // Update: no tocamos razon_social_id ni usuario originales
       // (aislamiento e historial del creador).
-      const { id, ...proveedorData } = proveedor
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('proveedores')
         .update(proveedorData)
-        .eq('id', proveedor.id)
+        .eq('id', id)
         .select()
         .single()
+
+      if (error && COLS_PROVEEDOR_OPCIONALES.test(error.message || '')) {
+        console.warn('[saveProveedor] Columnas opcionales ausentes (update).')
+        const retry = await supabase
+          .from('proveedores')
+          .update(sinColumnasOpcionalesProveedor(proveedorData))
+          .eq('id', id)
+          .select()
+          .single()
+        data = retry.data
+        error = retry.error
+      }
 
       if (error) return { data: null, error: error.message }
       return { data, error: null }
@@ -1569,6 +1842,35 @@ export async function saveProveedor(
   } catch (err) {
     console.error('[Supabase] Error guardando proveedor:', err)
     return { data: null, error: 'Error de conexion' }
+  }
+}
+
+/** Columnas de `proveedores` que pueden faltar (script officemart-002). */
+const COLS_PROVEEDOR_OPCIONALES = /correo|telefono|direccion|notas|moneda|pais|dias_credito/i
+
+function sinColumnasOpcionalesProveedor(data: Omit<Proveedor, 'id'>): Omit<Proveedor, 'id'> {
+  const { correo: _c, telefono: _t, direccion: _d, notas: _n, moneda: _m, pais: _p, dias_credito: _dc, ...resto } = data
+  return resto
+}
+
+/** Cadenas vacias -> null; dias_credito a entero >= 0 o null; moneda en mayusculas. */
+function sanitizeProveedorPayload(raw: Omit<Proveedor, 'id'>): Omit<Proveedor, 'id'> {
+  const blank = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : typeof v === 'string' ? v.trim() : v)
+  return {
+    ...raw,
+    nombre: (raw.nombre || '').trim(),
+    rtn: blank(raw.rtn) as Proveedor['rtn'],
+    contacto: blank(raw.contacto) as Proveedor['contacto'],
+    correo: blank(raw.correo) as Proveedor['correo'],
+    telefono: blank(raw.telefono) as Proveedor['telefono'],
+    direccion: blank(raw.direccion) as Proveedor['direccion'],
+    notas: blank(raw.notas) as Proveedor['notas'],
+    moneda: (blank(raw.moneda) as string | null)?.toUpperCase() ?? null,
+    pais: blank(raw.pais) as Proveedor['pais'],
+    dias_credito:
+      raw.dias_credito == null || raw.dias_credito === ('' as unknown) || Number.isNaN(Number(raw.dias_credito))
+        ? null
+        : Math.max(0, Math.floor(Number(raw.dias_credito))),
   }
 }
 

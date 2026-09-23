@@ -45,6 +45,7 @@ import {
   Gauge,
   Workflow,
   Receipt,
+  UserCheck,
   type LucideIcon,
 } from "lucide-react"
 
@@ -76,10 +77,11 @@ export interface ModuloGranular {
 }
 
 /**
- * 45 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
- * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI" y TODOS
- * los de la categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados
- * por empresa; el super-admin los habilita desde /plataforma).
+ * 46 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
+ * "Vendedores y Zonas" y TODOS los de la categoria "Produccion" NO van en
+ * MODULOS_BASE (nacen deshabilitados por empresa; el super-admin los habilita
+ * desde /plataforma).
  */
 export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // ── Dashboard ──────────────────────────────────────────────────────────
@@ -178,6 +180,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   { nombre: "Productos", href: "/configuracion/productos", categoria: "Configuracion", icon: Package },
   { nombre: "Almacenes", href: "/configuracion/almacenes", categoria: "Configuracion", icon: Warehouse },
   { nombre: "Clientes", href: "/configuracion/clientes", categoria: "Configuracion", icon: Users },
+  // NUEVO (no-base, officemart-002): vendedores (para asociarlos a ventas y
+  // comisiones) y zonas de clientes. Nace deshabilitado por empresa.
+  { nombre: "Vendedores y Zonas", href: "/configuracion/vendedores", categoria: "Configuracion", icon: UserCheck },
   { nombre: "Proveedores", href: "/configuracion/proveedores", categoria: "Configuracion", icon: Truck },
   {
     nombre: "Cuentas Bancarias",
