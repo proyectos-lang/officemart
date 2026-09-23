@@ -506,6 +506,17 @@ export async function marcarCotizacionFacturada(id: number, ventaId: number): Pr
   return { error: null }
 }
 
+/** Enlaza la orden de trabajo creada desde la cotización (best-effort). */
+export async function vincularOrdenCotizacion(id: number, ordenId: number): Promise<{ error: string | null }> {
+  const supabase = createClient()
+  if (!supabase) return { error: "Cliente no disponible" }
+  const { error } = await supabase
+    .from("cotizaciones_encabezado")
+    .update({ orden_id: ordenId, updated_at: new Date().toISOString() })
+    .eq("id", id)
+  return { error: error ? error.message : null }
+}
+
 /** Copia una cotización como nuevo Borrador (vigencia = hoy + 15 días). */
 export async function duplicarCotizacion(
   id: number

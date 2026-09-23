@@ -569,6 +569,16 @@ Nullable; qué recepción generó la entrada (`'Entrada Compra'`, `referencia_id
 
 ---
 
+## Officemart — órdenes de trabajo y consumo por etapa (script officemart-010)
+
+### `produccion_ordenes` (+ columnas) y `produccion_orden_etapas.costo_mano_obra`
+`produccion_ordenes` gana `tipo` (NULL = producción | `'Trabajo'`), `descripcion`, `cliente_id`, `venta_id`, `pedido_id`, `cotizacion_id`, `costo_materiales_real`, `costo_total_real`. Una **orden de trabajo** (`createOrdenTrabajo`, `codigoOrden(id,'Trabajo')` = `OT-####`) usa `producto_id = 0` como centinela (columna NOT NULL sin FK; `getOrdenes`/`getFlujoOrdenes` no consultan el producto 0 y muestran la descripción, `etiquetaOrden`). `generarEtapasOrden(ordenId, operacionIds?)` acepta un subconjunto de operaciones. `entregarEtapa` acepta `costo_mano_obra`. Pura `agruparTableroPiso(flujos, hoy)` → columnas por operación (vista Tablero).
+
+### `produccion_etapa_consumos`
+`id, razon_social_id, orden_id, etapa_id (NULL = general), tipo_item ('material'|'producto'), material_id, producto_id, cantidad, costo_unitario, costo_total, almacen_id, localizacion_id, notas, fecha, anulado_at, motivo_anulacion, usuario, created_at` (CHECK: el id según el tipo). RLS por tenant. `lib/services/produccion-consumos.ts`: `registrarConsumoEtapa` (valida stock con la pura `validarStockConsumo`, descuenta con `mat_ajustar_stock` / `ajustar_stock`, movimiento `'Consumo Etapa'` en `materiales_movimientos` o kardex `'Salida Produccion'` (`referencia_id` = orden, `referencia_tipo='orden_produccion'`; respaldo `'Ajuste'` negativo), compensa si falla a mitad, pasa la orden a En Proceso), `anularConsumo` (devuelve stock, `'Anulacion Consumo'` / `'Entrada Anulacion'`), `setManoObraEtapa`, `recalcularCostoOrden` (pura `costoRealOrden` = consumos vigentes + corridas ejecutadas + mano de obra). `produccion_receta_materiales.operacion_id/producto_id` quedan reservados para recetas por etapa. Cotizaciones → "Crear orden de trabajo" (`vincularOrdenCotizacion`). Kardex etiqueta `'Salida Produccion'` con OP-/OT-####.
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

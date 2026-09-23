@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { FileText, Plus, Loader2, Check, ChevronsUpDown, AlertTriangle, CalendarClock } from "lucide-react"
+import { FileText, Plus, Loader2, Check, ChevronsUpDown, AlertTriangle, CalendarClock, Wrench } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -24,10 +25,12 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import { getProductos, type Producto } from "@/lib/services/catalogos"
+import { formatCurrency } from "@/lib/utils/format"
+import { getProductos, getClientes, type Producto, type Cliente } from "@/lib/services/catalogos"
 import { getProductosFabricados } from "@/lib/services/productos-fabricados"
+import { getOperaciones, type OperacionProduccion } from "@/lib/services/produccion-operaciones"
 import {
-  getOrdenes, createOrden, setEstadoOrden, codigoOrden,
+  getOrdenes, createOrden, createOrdenTrabajo, setEstadoOrden, codigoOrden, etiquetaOrden,
   type OrdenProduccion, type EstadoOrden,
 } from "@/lib/services/produccion-ordenes"
 
@@ -48,8 +51,12 @@ export default function OrdenesProduccionPage() {
   const [ordenes, setOrdenes] = React.useState<OrdenProduccion[]>([])
   const [productos, setProductos] = React.useState<Producto[]>([])
   const [fabricados, setFabricados] = React.useState<Set<number>>(new Set())
+  const [clientes, setClientes] = React.useState<Cliente[]>([])
+  const [operaciones, setOperaciones] = React.useState<OperacionProduccion[]>([])
   const [loading, setLoading] = React.useState(true)
+  const [filtroTipo, setFiltroTipo] = React.useState<"todas" | "Produccion" | "Trabajo">("todas")
 
+  // Nueva orden de producción
   const [nuevoOpen, setNuevoOpen] = React.useState(false)
   const [comboOpen, setComboOpen] = React.useState(false)
   const [productoId, setProductoId] = React.useState<number | null>(null)
@@ -58,12 +65,24 @@ export default function OrdenesProduccionPage() {
   const [notas, setNotas] = React.useState("")
   const [saving, setSaving] = React.useState(false)
 
+  // Nueva orden de trabajo (officemart-010)
+  const [otOpen, setOtOpen] = React.useState(false)
+  const [otDescripcion, setOtDescripcion] = React.useState("")
+  const [otClienteId, setOtClienteId] = React.useState<number | null>(null)
+  const [otClienteOpen, setOtClienteOpen] = React.useState(false)
+  const [otCantidad, setOtCantidad] = React.useState("1")
+  const [otFecha, setOtFecha] = React.useState("")
+  const [otNotas, setOtNotas] = React.useState("")
+  const [otOps, setOtOps] = React.useState<number[]>([])
+
   const cargar = React.useCallback(async () => {
     setLoading(true)
-    const [o, p, f] = await Promise.all([getOrdenes(), getProductos(), getProductosFabricados()])
+    const [o, p, f, c, ops] = await Promise.all([getOrdenes(), getProductos(), getProductosFabricados(), getClientes({ soloActivos: true }), getOperaciones({ soloActivas: true })])
     setOrdenes(o.data)
     setProductos(p.data || [])
     setFabricados(f.data)
+    setClientes(c.data || [])
+    setOperaciones(ops.data || [])
     setLoading(false)
   }, [])
   React.useEffect(() => { cargar() }, [cargar])
@@ -73,10 +92,18 @@ export default function OrdenesProduccionPage() {
     [productos, fabricados],
   )
   const productoSel = productos.find((p) => p.id === productoId)
+  const otCliente = clientes.find((c) => c.id === otClienteId)
+  const ordenesFiltradas = ordenes.filter((o) => filtroTipo === "todas" || (filtroTipo === "Trabajo" ? o.tipo === "Trabajo" : o.tipo !== "Trabajo"))
 
   function abrirNuevo() {
     setProductoId(null); setCantidad(""); setFecha(""); setNotas("")
     setNuevoOpen(true)
+  }
+
+  function abrirNuevaOT() {
+    setOtDescripcion(""); setOtClienteId(null); setOtCantidad("1"); setOtFecha(""); setOtNotas("")
+    setOtOps(operaciones.map((o) => o.id))
+    setOtOpen(true)
   }
 
   async function guardar() {
@@ -111,6 +138,30 @@ export default function OrdenesProduccionPage() {
     cargar()
   }
 
+  async function guardarOT() {
+    if (!otDescripcion.trim()) {
+      toast({ title: "Describe el trabajo", variant: "destructive" })
+      return
+    }
+    setSaving(true)
+    const res = await createOrdenTrabajo({
+      descripcion: otDescripcion,
+      cliente_id: otClienteId,
+      cantidad_objetivo: Number(otCantidad) || 1,
+      fecha_objetivo: otFecha || null,
+      notas: otNotas || null,
+      operacion_ids: otOps,
+    })
+    setSaving(false)
+    if (!res.data) {
+      toast({ title: "No se pudo crear la orden de trabajo", description: res.error ?? "", variant: "destructive" })
+      return
+    }
+    toast({ title: `${codigoOrden(res.data.id, "Trabajo")} creada`, description: res.error ?? `${res.data.etapas} etapa(s) generadas; síguela en Flujo de Producción.`, variant: res.error ? "destructive" : undefined })
+    setOtOpen(false)
+    cargar()
+  }
+
   async function cambiarEstado(o: OrdenProduccion, estado: EstadoOrden) {
     const { error } = await setEstadoOrden(o.id, estado)
     if (error) {
@@ -126,7 +177,7 @@ export default function OrdenesProduccionPage() {
         <h1 className="text-xl md:text-2xl font-bold text-foreground flex items-center gap-2">
           <FileText className="h-6 w-6 text-stone-600" /> Órdenes de Producción
         </h1>
-        <p className="text-sm text-muted-foreground">Qué producir, cuánto y para cuándo; y prográmalas en el día con el planeador.</p>
+        <p className="text-sm text-muted-foreground">Qué producir (o qué trabajo hacer), cuánto y para cuándo; y prográmalas en el día con el planeador.</p>
       </div>
 
       <Tabs defaultValue="ordenes" className="space-y-4">
@@ -137,22 +188,35 @@ export default function OrdenesProduccionPage() {
 
         {/* ── Tab 1: crear/listar órdenes ── */}
         <TabsContent value="ordenes" className="space-y-4">
-          <div className="flex justify-end">
-            <Button onClick={abrirNuevo} size="sm">
-              <Plus className="h-4 w-4 mr-1" /> Nueva orden
-            </Button>
+          <div className="flex flex-wrap justify-between gap-2">
+            <Select value={filtroTipo} onValueChange={(v) => setFiltroTipo(v as typeof filtroTipo)}>
+              <SelectTrigger className="h-9 w-48"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas las órdenes</SelectItem>
+                <SelectItem value="Produccion">Solo producción (OP)</SelectItem>
+                <SelectItem value="Trabajo">Solo trabajo (OT)</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex gap-2">
+              <Button onClick={abrirNuevaOT} size="sm" variant="outline">
+                <Wrench className="h-4 w-4 mr-1" /> Nueva orden de trabajo
+              </Button>
+              <Button onClick={abrirNuevo} size="sm">
+                <Plus className="h-4 w-4 mr-1" /> Nueva orden
+              </Button>
+            </div>
           </div>
           <Card className="rounded-xl border-stone-200">
             <CardHeader className="p-4 md:p-6 pb-3">
               <CardTitle className="text-base md:text-lg">Órdenes</CardTitle>
-              <CardDescription className="text-xs md:text-sm">{ordenes.length} orden(es).</CardDescription>
+              <CardDescription className="text-xs md:text-sm">{ordenesFiltradas.length} orden(es). OP = fabrica un producto con receta; OT = trabajo libre (rotulación, servicio, proyecto) con consumo por etapa.</CardDescription>
             </CardHeader>
             <CardContent className="p-4 md:p-6 pt-0">
               {loading ? (
                 <div className="flex justify-center py-10"><Spinner className="h-6 w-6" /></div>
-              ) : ordenes.length === 0 ? (
+              ) : ordenesFiltradas.length === 0 ? (
                 <div className="text-center py-10 text-stone-500 text-sm">
-                  <FileText className="h-10 w-10 mx-auto mb-2 opacity-40" /> Sin órdenes de producción todavía.
+                  <FileText className="h-10 w-10 mx-auto mb-2 opacity-40" /> Sin órdenes todavía.
                 </div>
               ) : (
                 <div className="rounded-lg border border-stone-200 overflow-x-auto">
@@ -160,28 +224,38 @@ export default function OrdenesProduccionPage() {
                     <TableHeader sticky>
                       <TableRow>
                         <TableHead>N° Orden</TableHead>
-                        <TableHead>Producto</TableHead>
+                        <TableHead>Producto / trabajo</TableHead>
                         <TableHead className="text-right">Cantidad</TableHead>
                         <TableHead>Fecha objetivo</TableHead>
                         <TableHead>Receta</TableHead>
+                        <TableHead className="text-right">Costo real</TableHead>
                         <TableHead>Estado</TableHead>
                         <TableHead className="w-40">Cambiar estado</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {ordenes.map((o) => (
+                      {ordenesFiltradas.map((o) => (
                         <TableRow key={o.id}>
-                          <TableCell className="font-mono text-xs whitespace-nowrap">{codigoOrden(o.id)}</TableCell>
-                          <TableCell className="font-medium">{o.producto_nombre || `Producto #${o.producto_id}`}</TableCell>
+                          <TableCell className="font-mono text-xs whitespace-nowrap">{codigoOrden(o.id, o.tipo)}</TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              {o.tipo === "Trabajo" && <Badge variant="outline" className="text-[10px] border-violet-200 bg-violet-50 text-violet-700">OT</Badge>}
+                              <span>{etiquetaOrden(o)}</span>
+                            </div>
+                            {o.cliente_nombre && <p className="text-xs text-muted-foreground">{o.cliente_nombre}</p>}
+                          </TableCell>
                           <TableCell className="text-right">{o.cantidad_objetivo}</TableCell>
                           <TableCell className="text-sm">{o.fecha_objetivo || "-"}</TableCell>
                           <TableCell>
-                            {o.receta_id ? (
+                            {o.tipo === "Trabajo" ? (
+                              <span className="text-xs text-muted-foreground">Consumo por etapa</span>
+                            ) : o.receta_id ? (
                               <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px]">Sí</Badge>
                             ) : (
                               <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800 text-[10px] gap-1"><AlertTriangle className="h-3 w-3" /> Sin receta</Badge>
                             )}
                           </TableCell>
+                          <TableCell className="text-right text-sm">{o.costo_total_real != null ? formatCurrency(o.costo_total_real) : "—"}</TableCell>
                           <TableCell>{estadoBadge(o.estado)}</TableCell>
                           <TableCell>
                             <Select value={o.estado} onValueChange={(v) => cambiarEstado(o, v as EstadoOrden)}>
@@ -207,7 +281,7 @@ export default function OrdenesProduccionPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Nueva orden */}
+      {/* Nueva orden de producción */}
       <Dialog open={nuevoOpen} onOpenChange={setNuevoOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -266,6 +340,88 @@ export default function OrdenesProduccionPage() {
             <Button onClick={guardar} disabled={saving || productoId == null}>
               {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
               Crear orden
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Nueva orden de trabajo */}
+      <Dialog open={otOpen} onOpenChange={setOtOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Nueva orden de trabajo</DialogTitle>
+            <DialogDescription>Un trabajo sin producto fabricado (rotulación, impresión especial, proyecto). Recorre las etapas que elijas y consume materiales o productos en cada una.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Descripción del trabajo</Label>
+              <Textarea value={otDescripcion} onChange={(e) => setOtDescripcion(e.target.value)} rows={2} placeholder="Ej.: Rotulación de local Lettra, 3 rótulos de 2 m" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Cliente (opcional)</Label>
+              <Popover open={otClienteOpen} onOpenChange={setOtClienteOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                    <span className="truncate">{otCliente ? otCliente.nombre : "Sin cliente"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Buscar cliente…" />
+                    <CommandList>
+                      <CommandEmpty>Sin resultados.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem value="__none__" onSelect={() => { setOtClienteId(null); setOtClienteOpen(false) }}>
+                          <Check className={cn("mr-2 h-4 w-4", otClienteId == null ? "opacity-100" : "opacity-0")} /> Sin cliente
+                        </CommandItem>
+                        {clientes.map((c) => (
+                          <CommandItem key={c.id} value={`${c.nombre} ${c.rtn || ""}`} onSelect={() => { setOtClienteId(c.id!); setOtClienteOpen(false) }}>
+                            <Check className={cn("mr-2 h-4 w-4", otClienteId === c.id ? "opacity-100" : "opacity-0")} />
+                            <span className="flex-1 truncate">{c.nombre}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Cantidad (unidades del trabajo)</Label>
+                <Input type="number" min="1" step="1" value={otCantidad} onChange={(e) => setOtCantidad(e.target.value)} className="h-10" />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Fecha compromiso</Label>
+                <Input type="date" value={otFecha} onChange={(e) => setOtFecha(e.target.value)} className="h-10" />
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Etapas (operaciones) que recorre</Label>
+              {operaciones.length === 0 ? (
+                <p className="text-xs text-amber-700">No hay operaciones activas: defínelas en Operaciones de Producción o la OT se creará sin etapas.</p>
+              ) : (
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {operaciones.map((op) => (
+                    <label key={op.id} className="flex items-center gap-2 text-sm">
+                      <Checkbox checked={otOps.includes(op.id)} onCheckedChange={(v) => setOtOps((prev) => (v === true ? [...prev, op.id] : prev.filter((x) => x !== op.id)))} />
+                      {op.orden_secuencia}. {op.nombre}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Notas</Label>
+              <Textarea value={otNotas} onChange={(e) => setOtNotas(e.target.value)} rows={2} placeholder="Opcional" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOtOpen(false)} disabled={saving}>Cancelar</Button>
+            <Button onClick={guardarOT} disabled={saving || !otDescripcion.trim()}>
+              {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+              Crear orden de trabajo
             </Button>
           </DialogFooter>
         </DialogContent>

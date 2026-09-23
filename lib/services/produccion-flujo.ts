@@ -24,6 +24,8 @@ export interface EtapaOrden {
   fecha_entrega: string | null
   cantidad_procesada: number | null
   notas: string | null
+  /** Mano de obra declarada al entregar (script officemart-010). */
+  costo_mano_obra?: number | null
 }
 
 /** Una orden con su recorrido de etapas (para el tablero de flujo). */
@@ -38,6 +40,52 @@ export interface OrdenFlujo {
   etapaActual: EtapaOrden | null
   /** True si todas las etapas están entregadas. */
   completado: boolean
+  /** OT libre (officemart-010): tipo, cliente y costo real. */
+  tipo?: "Produccion" | "Trabajo" | null
+  cliente_nombre?: string | null
+  costo_total_real?: number | null
+  created_at?: string | null
+}
+
+/** Columna del tablero de piso: una operación con sus órdenes en esa etapa. */
+export interface ColumnaTablero {
+  operacion_id: number | null
+  nombre: string
+  orden_secuencia: number
+  ordenes: (OrdenFlujo & { etapa: EtapaOrden; dias_en_etapa: number })[]
+}
+
+/**
+ * Tablero de piso (pura): agrupa las órdenes en flujo por la operación de su
+ * etapa actual; las completadas van a la columna "Terminadas". `hoyISO` para
+ * los días en etapa.
+ */
+export function agruparTableroPiso(flujos: OrdenFlujo[], hoyISO: string): ColumnaTablero[] {
+  const cols = new Map<string, ColumnaTablero>()
+  const dias = (desde: string | null) => {
+    if (!desde) return 0
+    const a = new Date(`${desde.slice(0, 10)}T00:00:00Z`).getTime()
+    const b = new Date(`${hoyISO.slice(0, 10)}T00:00:00Z`).getTime()
+    return Number.isNaN(a) || Number.isNaN(b) ? 0 : Math.max(0, Math.round((b - a) / 86_400_000))
+  }
+  for (const f of flujos) {
+    if (f.completado || !f.etapaActual) {
+      const k = "__done"
+      let c = cols.get(k)
+      if (!c) { c = { operacion_id: null, nombre: "Terminadas", orden_secuencia: 9999, ordenes: [] }; cols.set(k, c) }
+      const ultima = f.etapas[f.etapas.length - 1]
+      if (ultima) c.ordenes.push({ ...f, etapa: ultima, dias_en_etapa: dias(ultima.fecha_entrega) })
+      continue
+    }
+    const e = f.etapaActual
+    const k = e.operacion_id != null ? `op:${e.operacion_id}` : `nm:${e.nombre}`
+    let c = cols.get(k)
+    if (!c) { c = { operacion_id: e.operacion_id, nombre: e.nombre, orden_secuencia: e.orden_secuencia, ordenes: [] }; cols.set(k, c) }
+    c.ordenes.push({ ...f, etapa: e, dias_en_etapa: dias(e.fecha_recepcion) })
+  }
+  const out = [...cols.values()]
+  for (const c of out) c.ordenes.sort((a, b) => b.dias_en_etapa - a.dias_en_etapa)
+  return out.sort((a, b) => a.orden_secuencia - b.orden_secuencia)
 }
 
 export const FLUJO_FEATURE_PENDING =
@@ -67,8 +115,11 @@ function mapEtapa(e: Record<string, unknown>): EtapaOrden {
     fecha_entrega: (e.fecha_entrega as string) ?? null,
     cantidad_procesada: e.cantidad_procesada != null ? Number(e.cantidad_procesada) : null,
     notas: (e.notas as string) ?? null,
+    costo_mano_obra: e.costo_mano_obra != null ? Number(e.costo_mano_obra) : null,
   }
 }
+
+const COLS_ETAPA = "id, orden_id, operacion_id, nombre, orden_secuencia, estado, responsable, fecha_recepcion, fecha_entrega, cantidad_procesada, notas"
 
 /** Etapas de una orden, en secuencia. */
 export async function getEtapasOrden(ordenId: number): Promise<{ data: EtapaOrden[]; error: string | null }> {
@@ -77,7 +128,7 @@ export async function getEtapasOrden(ordenId: number): Promise<{ data: EtapaOrde
   if (!supabase) return { data: [], error: "Cliente no disponible" }
   const { data, error } = await supabase
     .from("produccion_orden_etapas")
-    .select("id, orden_id, operacion_id, nombre, orden_secuencia, estado, responsable, fecha_recepcion, fecha_entrega, cantidad_procesada, notas")
+    .select(COLS_ETAPA)
     .eq("orden_id", ordenId)
     .order("orden_secuencia", { ascending: true })
   if (error) {
@@ -94,6 +145,7 @@ export async function getEtapasOrden(ordenId: number): Promise<{ data: EtapaOrde
  */
 export async function generarEtapasOrden(
   ordenId: number,
+  operacionIds?: number[],
 ): Promise<{ data: { creadas: number } | null; error: string | null }> {
   const supabase = createClient()
   if (!supabase) return { data: null, error: "Cliente no disponible" }
@@ -105,9 +157,11 @@ export async function generarEtapasOrden(
   if (exErr) return { data: null, error: exErr }
   if (existentes.length > 0) return { data: { creadas: 0 }, error: null }
 
-  // Secuencia vigente (operaciones activas).
-  const { data: ops, error: opErr } = await getOperaciones({ soloActivas: true })
+  // Secuencia vigente (operaciones activas), opcionalmente solo un subconjunto
+  // (órdenes de trabajo que no pasan por todas las áreas).
+  const { data: todas, error: opErr } = await getOperaciones({ soloActivas: true })
   if (opErr) return { data: null, error: opErr }
+  const ops = operacionIds && operacionIds.length > 0 ? todas.filter((o) => operacionIds.includes(o.id)) : todas
   if (ops.length === 0) return { data: null, error: "No hay operaciones definidas. Crea la secuencia en Operaciones de Producción." }
 
   const nowHN = getHondurasNowISO()
@@ -140,7 +194,7 @@ export async function getFlujoOrdenes(): Promise<{ data: OrdenFlujo[]; error: st
 
   const { data: etapasRaw, error } = await supabase
     .from("produccion_orden_etapas")
-    .select("id, orden_id, operacion_id, nombre, orden_secuencia, estado, responsable, fecha_recepcion, fecha_entrega, cantidad_procesada, notas")
+    .select(COLS_ETAPA)
     .order("orden_id", { ascending: false })
     .order("orden_secuencia", { ascending: true })
   if (error) {
@@ -159,34 +213,61 @@ export async function getFlujoOrdenes(): Promise<{ data: OrdenFlujo[]; error: st
   }
   const ordenIds = Array.from(porOrden.keys())
 
-  // Datos de las órdenes (producto, cantidad, estado) sin embed.
-  const { data: ordenesRaw } = await supabase
+  // Datos de las órdenes (producto, cantidad, estado) sin embed. Columnas de
+  // OT (officemart-010) con reintento sin ellas.
+  let ordenesRaw: Record<string, unknown>[] = []
+  const conOT = await supabase
     .from("produccion_ordenes")
-    .select("id, producto_id, cantidad_objetivo, fecha_objetivo, estado")
+    .select("id, producto_id, cantidad_objetivo, fecha_objetivo, estado, created_at, tipo, descripcion, cliente_id, costo_total_real")
     .in("id", ordenIds)
+  if (!conOT.error) {
+    ordenesRaw = (conOT.data || []) as Record<string, unknown>[]
+  } else {
+    const base = await supabase
+      .from("produccion_ordenes")
+      .select("id, producto_id, cantidad_objetivo, fecha_objetivo, estado, created_at")
+      .in("id", ordenIds)
+    ordenesRaw = (base.data || []) as Record<string, unknown>[]
+  }
   const ordenById = new Map<number, Record<string, unknown>>()
-  for (const o of ordenesRaw || []) ordenById.set(Number(o.id), o)
+  for (const o of ordenesRaw) ordenById.set(Number(o.id), o)
 
-  const productoIds = Array.from(new Set((ordenesRaw || []).map((o) => Number(o.producto_id))))
+  const productoIds = Array.from(new Set(ordenesRaw.map((o) => Number(o.producto_id)).filter((id) => id > 0)))
   const nombreProd = new Map<number, string>()
   if (productoIds.length > 0) {
     const { data: prods } = await supabase.from("productos").select("id, nombre").in("id", productoIds)
     for (const p of prods || []) nombreProd.set(Number(p.id), String(p.nombre || ""))
+  }
+  const clienteIds = Array.from(new Set(ordenesRaw.map((o) => (o.cliente_id != null ? Number(o.cliente_id) : null)).filter((x): x is number => x != null)))
+  const nombreCli = new Map<number, string>()
+  if (clienteIds.length > 0) {
+    const { data: clis } = await supabase.from("clientes").select("id, nombre").in("id", clienteIds)
+    for (const c of clis || []) nombreCli.set(Number(c.id), String(c.nombre || ""))
   }
 
   const filas: OrdenFlujo[] = ordenIds.map((oid) => {
     const ets = (porOrden.get(oid) || []).sort((a, b) => a.orden_secuencia - b.orden_secuencia)
     const o = ordenById.get(oid)
     const etapaActual = ets.find((e) => e.estado !== "Entregada") ?? null
+    const tipo = (o?.tipo as "Produccion" | "Trabajo" | null) ?? null
+    const nombre = !o
+      ? `Orden #${oid}`
+      : tipo === "Trabajo"
+        ? (String(o.descripcion || "").trim() || "Orden de trabajo")
+        : (nombreProd.get(Number(o.producto_id)) || `Producto #${o.producto_id}`)
     return {
       orden_id: oid,
-      producto_nombre: o ? (nombreProd.get(Number(o.producto_id)) || `Producto #${o.producto_id}`) : `Orden #${oid}`,
+      producto_nombre: nombre,
       cantidad_objetivo: o ? Number(o.cantidad_objetivo || 0) : 0,
       fecha_objetivo: o ? ((o.fecha_objetivo as string) || null) : null,
       estado_orden: o ? String(o.estado || "") : "",
       etapas: ets,
       etapaActual,
       completado: etapaActual == null,
+      tipo,
+      cliente_nombre: o?.cliente_id != null ? nombreCli.get(Number(o.cliente_id)) ?? null : null,
+      costo_total_real: o?.costo_total_real != null ? Number(o.costo_total_real) : null,
+      created_at: (o?.created_at as string) ?? null,
     }
   })
   // Órdenes con trabajo pendiente primero, luego completadas.
@@ -373,7 +454,7 @@ export async function iniciarEtapa(id: number, responsable?: string | null): Pro
  */
 export async function entregarEtapa(
   id: number,
-  input: { cantidad_procesada?: number | null; notas?: string | null; responsable?: string | null },
+  input: { cantidad_procesada?: number | null; notas?: string | null; responsable?: string | null; costo_mano_obra?: number | null },
 ): Promise<{ error: string | null }> {
   const supabase = createClient()
   if (!supabase) return { error: "Cliente no disponible" }
@@ -393,8 +474,14 @@ export async function entregarEtapa(
   if (input.notas !== undefined) patch.notas = (input.notas || "").trim() || null
   const resp = (input.responsable || "").trim()
   if (resp) patch.responsable = resp
-  const up = await actualizarEtapa(id, patch)
+  let up = await actualizarEtapa(id, { ...patch, ...(input.costo_mano_obra != null ? { costo_mano_obra: Math.max(0, Number(input.costo_mano_obra) || 0) } : {}) })
+  // Columna costo_mano_obra ausente (officemart-010 pendiente): reintento sin ella.
+  if (up.error && /costo_mano_obra/i.test(up.error)) up = await actualizarEtapa(id, patch)
   if (up.error) return up
+  if (input.costo_mano_obra != null) {
+    const { recalcularCostoOrden } = await import("@/lib/services/produccion-consumos")
+    await recalcularCostoOrden(supabase, Number(etapa.orden_id))
+  }
 
   // Recibe la siguiente etapa (la de menor secuencia > esta que siga Pendiente).
   const { data: siguientes } = await supabase

@@ -10,12 +10,23 @@ import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from "@/lib/servi
 
 export type EstadoOrden = "Abierta" | "En Proceso" | "Cerrada" | "Cancelada"
 
+/** Tipo de orden (script officemart-010): NULL/'Produccion' = fabrica un producto; 'Trabajo' = OT libre. */
+export type TipoOrden = "Produccion" | "Trabajo"
+
 /**
- * Codigo legible de una orden de produccion, derivado de su id (unico y estable):
- * 'OP-0007'. No requiere columna ni secuencia; el id garantiza unicidad.
+ * Codigo legible de una orden, derivado de su id (unico y estable): 'OP-0007'
+ * para producción, 'OT-0007' para órdenes de trabajo. No requiere columna ni
+ * secuencia; el id garantiza unicidad.
  */
-export function codigoOrden(id: number): string {
-  return `OP-${String(id).padStart(4, "0")}`
+export function codigoOrden(id: number, tipo?: TipoOrden | string | null): string {
+  const prefijo = tipo === "Trabajo" ? "OT" : "OP"
+  return `${prefijo}-${String(id).padStart(4, "0")}`
+}
+
+/** Nombre visible de la orden: descripción (OT) o producto (OP). Pura. */
+export function etiquetaOrden(o: { tipo?: TipoOrden | string | null; descripcion?: string | null; producto_nombre?: string | null; producto_id?: number }): string {
+  if (o.tipo === "Trabajo") return (o.descripcion || "").trim() || "Orden de trabajo"
+  return (o.producto_nombre || "").trim() || (o.producto_id ? `Producto #${o.producto_id}` : "Orden")
 }
 
 export interface OrdenProduccion {
@@ -32,7 +43,20 @@ export interface OrdenProduccion {
   fecha_programada: string | null
   inicio_min_dia: number | null       // minutos desde medianoche (0..1439)
   duracion_horas: number | null       // NULL => se calcula desde la receta
+  // ── Orden de trabajo libre y costo real (script officemart-010) ──
+  tipo?: TipoOrden | null
+  descripcion?: string | null
+  cliente_id?: number | null
+  cliente_nombre?: string | null
+  venta_id?: number | null
+  pedido_id?: number | null
+  cotizacion_id?: number | null
+  costo_materiales_real?: number | null
+  costo_total_real?: number | null
 }
+
+/** Columnas del script officemart-010 (se piden aparte y se reintenta sin ellas). */
+const COLS_OT = "tipo, descripcion, cliente_id, venta_id, pedido_id, cotizacion_id, costo_materiales_real, costo_total_real"
 
 /** Jornada laboral de un dia (rango visible del planeador), en minutos. */
 export interface JornadaDia {
@@ -93,7 +117,28 @@ function mapOrden(o: Record<string, unknown>): OrdenProduccion {
     fecha_programada: (o.fecha_programada as string) || null,
     inicio_min_dia: o.inicio_min_dia != null ? Number(o.inicio_min_dia) : null,
     duracion_horas: o.duracion_horas != null ? Number(o.duracion_horas) : null,
+    tipo: (o.tipo as TipoOrden) ?? null,
+    descripcion: (o.descripcion as string) ?? null,
+    cliente_id: o.cliente_id != null ? Number(o.cliente_id) : null,
+    venta_id: o.venta_id != null ? Number(o.venta_id) : null,
+    pedido_id: o.pedido_id != null ? Number(o.pedido_id) : null,
+    cotizacion_id: o.cotizacion_id != null ? Number(o.cotizacion_id) : null,
+    costo_materiales_real: o.costo_materiales_real != null ? Number(o.costo_materiales_real) : null,
+    costo_total_real: o.costo_total_real != null ? Number(o.costo_total_real) : null,
   }
+}
+
+/** Nombres de clientes por id (para las OT con cliente). */
+async function resolverNombresCliente(
+  supabase: NonNullable<ReturnType<typeof createClient>>,
+  clienteIds: (number | null | undefined)[],
+): Promise<Map<number, string>> {
+  const out = new Map<number, string>()
+  const ids = Array.from(new Set(clienteIds.filter((v): v is number => v != null)))
+  if (ids.length === 0) return out
+  const { data } = await supabase.from("clientes").select("id, nombre").in("id", ids)
+  for (const c of data || []) out.set(Number(c.id), String(c.nombre || ""))
+  return out
 }
 
 /** Resuelve nombres de producto por id (sin embed: no hay FK declarada). */
@@ -122,10 +167,17 @@ export async function getOrdenes(): Promise<{ data: OrdenProduccion[]; error: st
     "id, producto_id, receta_id, cantidad_objetivo, fecha_objetivo, notas, estado, created_at"
 
   type QueryRes = { data: Record<string, unknown>[] | null; error: { message?: string; code?: string } | null }
+  // Primero con las columnas de OT (officemart-010); luego planeador; luego base.
   let res: QueryRes = await supabase
     .from("produccion_ordenes")
-    .select(COLS_FULL)
+    .select(`${COLS_FULL}, ${COLS_OT}`)
     .order("created_at", { ascending: false })
+  if (res.error && isMissingColumn(res.error)) {
+    res = await supabase
+      .from("produccion_ordenes")
+      .select(COLS_FULL)
+      .order("created_at", { ascending: false })
+  }
   if (res.error && isMissingColumn(res.error)) {
     res = await supabase
       .from("produccion_ordenes")
@@ -138,12 +190,76 @@ export async function getOrdenes(): Promise<{ data: OrdenProduccion[]; error: st
   }
 
   const filas = res.data || []
-  const nombres = await resolverNombresProducto(supabase, filas.map((o) => Number(o.producto_id)))
+  const [nombres, clientes] = await Promise.all([
+    resolverNombresProducto(supabase, filas.map((o) => Number(o.producto_id)).filter((id) => id > 0)),
+    resolverNombresCliente(supabase, filas.map((o) => (o.cliente_id != null ? Number(o.cliente_id) : null))),
+  ])
   const rows = filas.map((o) => {
     const base = mapOrden(o)
-    return { ...base, producto_nombre: nombres.get(base.producto_id) ?? "" }
+    return {
+      ...base,
+      // Una OT no tiene producto: su "nombre" es la descripción.
+      producto_nombre: base.tipo === "Trabajo" ? etiquetaOrden(base) : nombres.get(base.producto_id) ?? "",
+      cliente_nombre: base.cliente_id != null ? clientes.get(base.cliente_id) ?? null : null,
+    }
   })
   return { data: rows, error: null }
+}
+
+/**
+ * Crea una ORDEN DE TRABAJO libre (sin producto): descripción, cliente y
+ * documento origen opcionales. Usa `producto_id = 0` (centinela: la columna es
+ * NOT NULL sin FK) y genera sus etapas con las operaciones indicadas (o todas
+ * las activas). Requiere el script officemart-010.
+ */
+export async function createOrdenTrabajo(input: {
+  descripcion: string
+  cliente_id?: number | null
+  venta_id?: number | null
+  pedido_id?: number | null
+  cotizacion_id?: number | null
+  cantidad_objetivo?: number
+  fecha_objetivo?: string | null
+  notas?: string | null
+  operacion_ids?: number[]
+}): Promise<{ data: { id: number; etapas: number } | null; error: string | null }> {
+  const supabase = createClient()
+  if (!supabase) return { data: null, error: "Cliente no disponible" }
+  const stamp = await getTenantStamp(supabase)
+  if (!isValidStamp(stamp)) return { data: null, error: SESION_INVALIDA_ERROR }
+  const descripcion = (input.descripcion || "").trim()
+  if (!descripcion) return { data: null, error: "Describe el trabajo a realizar." }
+
+  const { data, error } = await supabase
+    .from("produccion_ordenes")
+    .insert({
+      producto_id: 0,
+      receta_id: null,
+      tipo: "Trabajo",
+      descripcion,
+      cliente_id: input.cliente_id ?? null,
+      venta_id: input.venta_id ?? null,
+      pedido_id: input.pedido_id ?? null,
+      cotizacion_id: input.cotizacion_id ?? null,
+      cantidad_objetivo: Math.max(1, Number(input.cantidad_objetivo) || 1),
+      fecha_objetivo: input.fecha_objetivo || null,
+      notas: (input.notas || "").trim() || null,
+      estado: "Abierta",
+      ...stamp,
+    })
+    .select("id")
+    .single()
+  if (error || !data?.id) {
+    if (isMissingTable(error)) return { data: null, error: ORDENES_FEATURE_PENDING }
+    if (error && isMissingColumn(error)) return { data: null, error: "Órdenes de trabajo pendientes: aplica scripts/officemart-010-ordenes-trabajo.sql en Supabase." }
+    return { data: null, error: error?.message || "No se pudo crear la orden de trabajo" }
+  }
+  const id = Number(data.id)
+  // Etapas: import dinámico para no crear ciclo (flujo importa de aquí? no; pero
+  // mantenemos el módulo de órdenes libre de dependencias de flujo).
+  const { generarEtapasOrden } = await import("@/lib/services/produccion-flujo")
+  const et = await generarEtapasOrden(id, input.operacion_ids)
+  return { data: { id, etapas: et.data?.creadas ?? 0 }, error: et.error ? `Orden creada, pero sin etapas: ${et.error}` : null }
 }
 
 /**

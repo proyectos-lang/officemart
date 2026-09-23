@@ -55,12 +55,15 @@ export const TUTORIALES_PRODUCCION: TutorialModulo[] = [
       "Inicia el flujo de una orden: genera sus etapas con tu secuencia de operaciones vigente (se CONGELA en ese momento; cambios posteriores no afectan órdenes ya iniciadas).",
       "Muestra en qué etapa va cada orden y el avance (etapas entregadas / total).",
       "En cada etapa registras: responsable, fecha de recepción, cantidad procesada y notas.",
-      "'Recibir' marca que el trabajo llegó a esa etapa; 'Entregar' la cierra y deja la siguiente lista para recibir automáticamente.",
+      "'Recibir' marca que el trabajo llegó a esa etapa; 'Iniciar' la pone En Proceso; 'Entregar' la cierra y deja la siguiente lista para recibir automáticamente.",
       "La primera etapa queda lista para trabajar apenas inicias el flujo.",
+      "Vista 'Tablero': una columna por operación con las órdenes que están en esa etapa (tarjetas con cliente, responsable, días en la etapa y semáforo: verde al día, ámbar 3+ días, rojo fecha compromiso vencida); la última columna son las terminadas. La vista 'Lista' es el acordeón por orden.",
+      "'Consumo' en la etapa activa (o 'Consumo general de la orden'): declara materiales y/o productos usados (pestañas Material / Producto; el producto pide almacén y localización). Valida stock, descuenta del inventario al costo promedio, deja kardex ('Salida Produccion' con la OP/OT) y suma al costo real de la orden. Un consumo se puede anular (vuelve el stock).",
+      "Al entregar una etapa puedes declarar la mano de obra (L) de esa etapa; también suma al costo real.",
     ],
     queNoHace: [
-      "No descuenta materiales ni calcula costos: eso lo hace el Control de Piso con las corridas. El flujo controla el AVANCE por etapas.",
-      "No inicia el flujo solo: debes presionar 'Iniciar flujo' en la orden (y tener operaciones definidas).",
+      "Las corridas del Control de Piso siguen siendo la forma de producir un producto con receta; el consumo por etapa es para lo que la receta no cubre y para las órdenes de trabajo.",
+      "No inicia el flujo solo: debes presionar 'Iniciar flujo' en la orden (y tener operaciones definidas). Las OT generan sus etapas al crearse con las operaciones elegidas.",
     ],
     operaciones: [
       {
@@ -349,6 +352,9 @@ export const TUTORIALES_PRODUCCION: TutorialModulo[] = [
       "La duración de cada orden se calcula desde la receta (cantidad ÷ estándar de producción) y se puede ajustar; cada barra muestra el avance según lo ya fabricado (unidades buenas).",
       "Maneja el estado de cada orden: Abierta, En Proceso, Cerrada o Cancelada.",
       "Solo muestra productos marcados como 'Es producto fabricado' (se marca en Configuración → Productos).",
+      "Órdenes de TRABAJO (OT): 'Nueva orden de trabajo' crea una orden sin producto fabricado (rotulación, impresión especial, un proyecto) con descripción, cliente opcional, cantidad, fecha compromiso y las etapas (operaciones) que recorre. Se numera OT-#### y se sigue en Flujo de Producción; sus materiales y productos se declaran como consumo por etapa.",
+      "Columna 'Costo real': suma de consumos por etapa, corridas ejecutadas y mano de obra declarada al entregar cada etapa (OP y OT).",
+      "Desde Ventas → Cotizaciones, el menú 'Crear orden de trabajo' genera la OT ya enlazada a la cotización y al cliente.",
     ],
     queNoHace: [
       "No descuenta materiales ni fabrica nada: eso ocurre en el Control de Piso al registrar las corridas.",

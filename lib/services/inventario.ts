@@ -79,10 +79,28 @@ async function resolverReferenciasMovimientos(
   try {
     const ventaIds = new Set<number>()
     const compraIds = new Set<number>()
+    const ordenIds = new Set<number>()
     for (const t of transacciones) {
       if (t.referencia_id == null) continue
       if (t.tipo_movimiento === 'Salida Venta') ventaIds.add(t.referencia_id)
       else if (t.tipo_movimiento === 'Entrada Compra') compraIds.add(t.referencia_id)
+      else if (t.tipo_movimiento === 'Salida Produccion') ordenIds.add(t.referencia_id)
+    }
+
+    // Consumo por etapa (officemart-010): etiqueta OP-/OT-#### de la orden.
+    const ordenLabel = new Map<number, string>()
+    if (ordenIds.size > 0) {
+      let ordRows: { id: number; tipo?: string | null; descripcion?: string | null }[] = []
+      const conTipo = await supabase.from('produccion_ordenes').select('id, tipo, descripcion').in('id', [...ordenIds])
+      if (!conTipo.error) ordRows = (conTipo.data || []) as typeof ordRows
+      else {
+        const soloId = await supabase.from('produccion_ordenes').select('id').in('id', [...ordenIds])
+        ordRows = (soloId.data || []) as typeof ordRows
+      }
+      for (const o of ordRows) {
+        const cod = `${o.tipo === 'Trabajo' ? 'OT' : 'OP'}-${String(o.id).padStart(4, '0')}`
+        ordenLabel.set(o.id, o.descripcion ? `${cod} · ${o.descripcion}` : cod)
+      }
     }
 
     const ventaLabel = new Map<number, string>()
@@ -117,6 +135,10 @@ async function resolverReferenciasMovimientos(
       }
       if (t.tipo_movimiento === 'Entrada Compra') {
         const label = compraLabel.get(t.referencia_id)
+        return label ? { ...t, referencia_texto: label } : t
+      }
+      if (t.tipo_movimiento === 'Salida Produccion') {
+        const label = ordenLabel.get(t.referencia_id)
         return label ? { ...t, referencia_texto: label } : t
       }
       return t

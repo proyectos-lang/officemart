@@ -33,10 +33,12 @@ import { getRazonSocialForPdf } from "@/lib/services/ventas"
 import { getClientes, type Cliente } from "@/lib/services/catalogos"
 import {
   getCotizaciones, getCotizacion, cambiarEstadoCotizacion, duplicarCotizacion, eliminarCotizacion,
-  prepararConversionAVenta, esConvertible, esEditable, diasParaVencer, fechaMasDias,
+  prepararConversionAVenta, vincularOrdenCotizacion, esConvertible, esEditable, diasParaVencer, fechaMasDias,
   ESTADOS_COTIZACION, COTIZACIONES_FEATURE_PENDING,
   type CotizacionEncabezado, type EstadoCotizacion,
 } from "@/lib/services/cotizaciones"
+import { createOrdenTrabajo, codigoOrden } from "@/lib/services/produccion-ordenes"
+import { Wrench } from "lucide-react"
 
 const ESTADO_BADGE: Record<EstadoCotizacion, string> = {
   Borrador: "bg-stone-100 text-stone-700",
@@ -53,6 +55,7 @@ export default function CotizacionesPage() {
   const { ready, razonSocialId } = useTenant()
   const { hasModulo } = useAuth()
   const puedeFacturar = hasModulo("Nueva Venta")
+  const puedeOT = hasModulo("Ordenes de Produccion")
   const hoy = getHondurasTodayISODate()
 
   const [loading, setLoading] = React.useState(true)
@@ -162,6 +165,31 @@ export default function CotizacionesPage() {
       return
     }
     router.push("/ventas/nueva")
+  }
+
+  /** Crea una orden de trabajo (officemart-010) a partir de la cotización. */
+  async function crearOT(c: CotizacionEncabezado) {
+    if (c.orden_id) {
+      toast({ title: "Ya tiene orden de trabajo", description: codigoOrden(c.orden_id, "Trabajo") })
+      return
+    }
+    setOcupado(c.id)
+    const { data, error } = await getCotizacion(c.id)
+    if (!data) {
+      setOcupado(null)
+      toast({ title: "No se pudo leer la cotización", description: error ?? "", variant: "destructive" })
+      return
+    }
+    const descripcion = `${c.numero}${c.cliente_nombre ? ` · ${c.cliente_nombre}` : ""}: ${data.lineas.map((l) => `${l.cantidad} ${l.descripcion}`).join(", ")}`.slice(0, 500)
+    const res = await createOrdenTrabajo({ descripcion, cliente_id: c.cliente_id, cotizacion_id: c.id, fecha_objetivo: c.vigencia_hasta })
+    setOcupado(null)
+    if (!res.data) {
+      toast({ title: "No se pudo crear la orden de trabajo", description: res.error ?? "", variant: "destructive" })
+      return
+    }
+    await vincularOrdenCotizacion(c.id, res.data.id)
+    toast({ title: `${codigoOrden(res.data.id, "Trabajo")} creada`, description: res.error ?? "Síguela en Producción → Flujo de Producción.", variant: res.error ? "destructive" : undefined })
+    cargar()
   }
 
   async function descargarPdf(c: CotizacionEncabezado) {
@@ -364,6 +392,11 @@ export default function CotizacionesPage() {
                                   {esConvertible(c.estado) && puedeFacturar && (
                                     <DropdownMenuItem onClick={() => facturar(c)}>
                                       <ShoppingCart className="h-4 w-4 mr-2" /> Facturar (Nueva Venta)
+                                    </DropdownMenuItem>
+                                  )}
+                                  {puedeOT && (c.estado === "Aprobada" || c.estado === "Facturada" || c.estado === "Enviada") && (
+                                    <DropdownMenuItem onClick={() => crearOT(c)} disabled={c.orden_id != null}>
+                                      <Wrench className="h-4 w-4 mr-2" /> {c.orden_id ? `OT creada (${codigoOrden(c.orden_id, "Trabajo")})` : "Crear orden de trabajo"}
                                     </DropdownMenuItem>
                                   )}
                                   {c.estado === "Vencida" && (
