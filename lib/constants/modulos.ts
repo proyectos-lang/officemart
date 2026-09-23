@@ -48,6 +48,7 @@ import {
   UserCheck,
   MessageSquareWarning,
   ScrollText,
+  MapPin,
   type LucideIcon,
 } from "lucide-react"
 
@@ -79,9 +80,10 @@ export interface ModuloGranular {
 }
 
 /**
- * 48 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 49 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
- * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría" y TODOS los de la
+ * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
+ * Facturación" y TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -208,6 +210,14 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
     href: "/configuracion/facturacion-cai",
     categoria: "Configuracion",
     icon: Receipt,
+  },
+  // NUEVO (no-base, officemart-004): sucursales/puntos de venta con su serie
+  // de factura, almacén por defecto y CAI propio. Nace deshabilitado.
+  {
+    nombre: "Puntos de Facturación",
+    href: "/configuracion/puntos-facturacion",
+    categoria: "Configuracion",
+    icon: MapPin,
   },
   // NUEVO (no-base, officemart-003): bitácora de acciones (ventas anuladas,
   // recibos, devoluciones, reclamos...) consultable por el admin.

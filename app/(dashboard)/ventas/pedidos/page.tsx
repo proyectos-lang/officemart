@@ -38,6 +38,8 @@ import { getCuentas, type CuentaConfig } from "@/lib/services/cuentas"
 import {
   crearVenta, getNextCorrelativo, type PagoVentaDetalleInput,
 } from "@/lib/services/ventas"
+import { useAuth } from "@/lib/contexts/auth-context"
+import { getPuntosFacturacion, resolverPuntoVenta } from "@/lib/services/puntos-facturacion"
 import {
   crearLink, getLinks, anularLink, getPedidos, getPedidoConDetalle,
   actualizarLineaPedido, rechazarPedido, marcarPedidoAprobado,
@@ -287,6 +289,7 @@ export default function PedidosCatalogoPage() {
 function RevisarPedidoDialog({ pedido, onDone }: { pedido: PedidoEncabezado; onDone: () => void }) {
   const { toast } = useToast()
   const { sesion: cajaSesion } = useCajaSesion()
+  const { user } = useAuth()
 
   const [open, setOpen] = useState(false)
   const [lineas, setLineas] = useState<PedidoLinea[]>([])
@@ -412,7 +415,11 @@ function RevisarPedidoDialog({ pedido, onDone }: { pedido: PedidoEncabezado; onD
 
     setProcesando(true)
     try {
-      const numeroFactura = await getNextCorrelativo()
+      // Punto de facturación del usuario (officemart-004): serie y CAI del punto.
+      // Sin puntos, `resolverPuntoVenta` devuelve null y todo sigue igual.
+      const { data: puntos } = await getPuntosFacturacion({ soloActivos: true })
+      const punto = resolverPuntoVenta(user, puntos)
+      const numeroFactura = await getNextCorrelativo(punto)
 
       // Desglose de pago: una linea con el metodo elegido. Se registra SIEMPRE
       // (incluido Credito) para que el Historial muestre el metodo y no "—".
@@ -467,6 +474,7 @@ function RevisarPedidoDialog({ pedido, onDone }: { pedido: PedidoEncabezado; onD
         almacen_id: Number(almacenId),
         localizacion_id: Number(localizacionId),
         pagos_detalle: pagosDetalle,
+        punto_facturacion: punto,
       })
 
       if (res.error || !res.data?.id) {

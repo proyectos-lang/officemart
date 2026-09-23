@@ -42,7 +42,8 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
     descripcion:
       "Registrar una venta: elegir cliente y productos, aplicar descuento e impuesto, y cobrar con uno o varios métodos de pago.",
     queHace: [
-      "Genera el número de factura correlativo automáticamente (FC-0001, FC-0002…).",
+      "Genera el número de factura correlativo automáticamente (FC-0001, FC-0002…). El número de la pantalla es una vista previa; el definitivo lo asigna el servidor al guardar (es el que sale en el aviso, la tirilla y el PDF).",
+      "Punto de facturación (si tu empresa tiene sucursales): la venta sale del punto asignado a tu usuario, con su almacén preseleccionado, su serie (p. ej. FC-SPS-0001) y su CAI. El admin, o un usuario sin punto, lo elige junto al número de factura.",
       "Catálogo de productos con búsqueda y stock disponible por almacén. El botón 'Seleccionar todo' agrega de una vez todas las referencias que coinciden con tu búsqueda/filtros.",
       "Lector de código de barras (si tu empresa lo tiene activo): al escanear un producto, el sistema lo ubica por su código y lo agrega solo a la venta. Un escáner USB/Bluetooth funciona como teclado, no requiere configuración extra.",
       "Venta rápida (si tu empresa la tiene activa): botón para agregar al carrito un producto o servicio NO catalogado escribiendo su descripción y precio a mano. Esta línea NO afecta el inventario (no descuenta stock ni genera movimiento en el kardex); sirve para vender algo que no está creado. Se cobra y factura como cualquier otra línea.",
@@ -155,6 +156,7 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
     keywords: [
       "vender", "factura", "pos", "cobrar", "efectivo", "tarjeta", "credito",
       "descuento", "isv", "impuesto", "comision", "ticket", "punto de venta",
+      "punto de facturacion", "sucursal", "serie",
       "tirilla", "termica", "impresora", "80mm", "imprimir", "comprobante", "recibo",
       "pantalla completa", "pos", "kiosko", "caja",
       "vuelto", "cambio", "efectivo recibido", "con cuanto paga",
@@ -174,6 +176,7 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
       "Reimprime cualquier factura en dos formatos: factura A4 en PDF (ícono de descarga) o tirilla térmica de 80 mm (ícono de impresora), con el mismo formato que se imprime al momento de la venta.",
       "Registra abonos (parciales o totales) a facturas con saldo pendiente: el botón verde de pago aparece directo en la fila. El efectivo entra a la caja chica y los pagos por banco a la cuenta que elijas.",
       "Pestaña 'Detalle por Producto': todas las líneas vendidas con costo y utilidad, exportable a Excel.",
+      "Si la empresa tiene Puntos de Facturación (sucursales), aparece la columna 'Punto' y un filtro por punto. Al reimprimir una factura fiscal se usa la foto de la autorización CAI con la que se emitió (CAI, rango, fecha límite), aunque el CAI se haya renovado después.",
       "Importar ventas desde Excel: sube una plantilla (una línea por producto), el sistema agrupa por factura y crea cada venta con sus mismas transacciones (inventario, caja/banco). Cada factura puede traer su método de pago en la columna «Metodo de Pago» (Efectivo, Banco o Credito): las de crédito quedan como cuenta por cobrar.",
       "ANULA una venta (botón rojo de prohibido) en vez de borrarla: la factura conserva su número y su detalle, pero deja de contar en reportes, cierre y cartera; los productos vuelven al inventario y, si había dinero cobrado, indicas de dónde sale el reembolso (caja chica o cuenta bancaria). Pide un MOTIVO obligatorio, queda en la bitácora de Auditoría y la factura se muestra tachada con la etiqueta ANULADA (oculta por defecto; actívala con el interruptor 'Mostrar anuladas'). Si la factura es fiscal (CAI) y el cliente ya se llevó el comprobante, lo correcto es una nota de crédito desde Devoluciones. No se puede anular una factura con devoluciones vigentes ni con abonos por recibo de cobro: anula primero esos documentos.",
       "Eliminar (borrado físico, con copia en 'Eliminadas') solo aparece si el administrador de la plataforma lo permitió para tu empresa. Con facturación fiscal se recomienda solo anular.",
@@ -287,7 +290,7 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
           "Sí. En Resumen de Facturas cada fila tiene el ícono de impresora: reimprime la tirilla de 80 mm de esa venta con sus productos, pagos y saldo tal como quedaron guardados. Junto a él, el ícono de descarga regenera la factura A4 en PDF.",
       },
     ],
-    keywords: ["facturas", "consultar", "reimprimir", "tirilla", "termica", "80mm", "abono", "eliminar venta", "anular", "anulada", "anulacion", "motivo", "reembolso", "mostrar anuladas", "exportar", "excel", "historial"],
+    keywords: ["facturas", "consultar", "reimprimir", "tirilla", "termica", "80mm", "abono", "eliminar venta", "anular", "anulada", "anulacion", "motivo", "reembolso", "mostrar anuladas", "exportar", "excel", "historial", "punto", "sucursal"],
   },
   {
     modulo: "Catalogo",

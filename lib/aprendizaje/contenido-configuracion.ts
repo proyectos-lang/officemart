@@ -96,6 +96,7 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
       "Dos roles: admin (ve y puede todo) y usuario (solo los módulos permitidos).",
       "Permisos granulares: activa o desactiva cada módulo por usuario; el menú lateral de esa persona se ajusta solo.",
       "Restablece contraseñas y desactiva usuarios (sin borrarlos, conservando su historial).",
+      "Si la empresa tiene Puntos de Facturación (sucursales), un selector junto al rol asigna a cada usuario su punto: Nueva Venta abre su almacén y numera con su serie; los admin pueden cambiar de punto al vender.",
     ],
     queNoHace: [
       "Solo los administradores pueden usar este módulo (aunque otro usuario tuviera el permiso, el servidor rechaza la operación).",
@@ -587,6 +588,7 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
       "Permite configurar por separado cada tipo de documento: Factura, Nota de Crédito y Nota de Débito (cada uno con su propio CAI y rango).",
       "Opcionalmente guarda los datos de la imprenta (para la modalidad por imprenta con formatos preimpresos).",
       "Con la función activa y el CAI configurado, cada venta nueva toma un número fiscal (000-001-01-00000003) y tanto la tirilla (80 mm) como la factura en carta (PDF) se imprimen como comprobante del SAR: CAI, correlativo, rango, fecha límite, RTN del cliente (o Consumidor Final), desglose gravado/exento, ISV y el total en letras. El recibo interno FC-#### se conserva aparte.",
+      "Si tu empresa tiene Puntos de Facturación (sucursales), cada punto lleva su propio CAI y se configura en Configuración → Puntos de Facturación → 'CAI por punto'; la autorización de esta pantalla solo se usa en ventas emitidas sin punto. Cada venta guarda una foto de la autorización usada, así puedes renovar el CAI sin afectar las facturas ya emitidas.",
     ],
     queNoHace: [
       "No reemplaza el nombre, RTN, dirección ni teléfono de la empresa: esos se toman de Configuración → Razón Social.",
@@ -636,6 +638,87 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
       "honduras",
       "nota de credito",
       "nota de debito",
+      "puntos de facturacion",
+      "sucursal",
+    ],
+  },
+  {
+    modulo: "Puntos de Facturación",
+    titulo: "Puntos de Facturación (sucursales)",
+    descripcion:
+      "Define las sucursales o puntos de venta de tu empresa: cada uno con su almacén por defecto, su propia serie de factura y su propio CAI del SAR.",
+    queHace: [
+      "Crea puntos de facturación con código (SPS, TGU…), nombre, ciudad, dirección y teléfono.",
+      "Asigna a cada punto una localización (almacén) por defecto: Nueva Venta la abre automáticamente para los usuarios de ese punto.",
+      "Serie interna propia por punto (opcional): con prefijo FC-SPS- cada sucursal numera sus facturas aparte (FC-SPS-0001, 0002…). Sin prefijo, usa la serie global FC-#### de la empresa.",
+      "CAI por punto (pestaña 'CAI por punto', requiere Facturación CAI activa): cada sucursal captura su propio CAI, establecimiento, punto de emisión, rango y fecha límite para Factura, Nota de Crédito y Nota de Débito. La tabla muestra los folios restantes de cada punto.",
+      "Cada venta guarda su punto y una FOTO de la autorización CAI usada (CAI, rango, fecha límite, imprenta): al reimprimir la tirilla o el PDF sale exactamente lo que se emitió, aunque después renueves el CAI.",
+      "Los usuarios se asignan a un punto desde Configuración → Usuarios y Permisos (selector junto al rol). El admin, o un usuario sin punto, puede elegir el punto en Nueva Venta; los demás venden siempre desde el suyo.",
+      "El Historial de Ventas muestra la columna 'Punto' y permite filtrar por punto. Las notas de crédito de una devolución salen del mismo punto que la factura.",
+    ],
+    queNoHace: [
+      "No es obligatorio: sin puntos creados, la empresa factura como siempre (serie FC-#### y el CAI de Configuración → Facturación CAI).",
+      "No borra un punto que ya tiene ventas: lo desactiva y las facturas conservan su punto.",
+      "No reparte inventario por sí mismo: el stock sigue viviendo en almacenes/localizaciones; el punto solo elige cuál se abre por defecto.",
+      "No aparece si el administrador de la plataforma no habilitó el módulo para tu empresa.",
+    ],
+    operaciones: [
+      {
+        titulo: "Crear una sucursal y asignarle usuarios",
+        pasos: [
+          "Abre Configuración → Puntos de Facturación (como admin) y presiona 'Nuevo punto'.",
+          "Escribe el código (p. ej. SPS), el nombre, ciudad y dirección.",
+          "Elige el almacén / localización por defecto de la sucursal y, si quieres numeración propia, el prefijo de serie (FC-SPS-).",
+          "Guarda. Ve a Configuración → Usuarios y Permisos, selecciona cada usuario de esa sucursal y elige su punto en el selector junto al rol.",
+          "Al entrar a Nueva Venta, esos usuarios verán el punto, su almacén preseleccionado y el siguiente número de su serie.",
+        ],
+      },
+      {
+        titulo: "Configurar el CAI de un punto",
+        pasos: [
+          "Con Facturación CAI activa para tu empresa, abre la pestaña 'CAI por punto'.",
+          "Elige el punto y, en la pestaña 'Factura', captura el CAI, establecimiento, punto de emisión, rango autorizado, siguiente correlativo y fecha límite que el SAR autorizó para esa sucursal.",
+          "Guarda. Repite para Nota de Crédito (y Nota de Débito) si la sucursal las emite.",
+          "Las ventas de ese punto tomarán ahora su número fiscal (ESTAB-PUNTO-01-NNNNNNNN) de esta autorización.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        pregunta: "Un usuario ve el punto equivocado en Nueva Venta.",
+        respuesta:
+          "Revisa su asignación en Configuración → Usuarios y Permisos. Si no tiene punto asignado y hay varios puntos, puede elegir cualquiera; si solo hay un punto activo, se usa ese.",
+      },
+      {
+        pregunta: "Renové el CAI de una sucursal. ¿Se afectan las facturas anteriores?",
+        respuesta:
+          "No. Cada venta guardó la foto de la autorización con la que se emitió; al reimprimir sale el CAI, rango y fecha límite originales. Solo las ventas nuevas usan la autorización nueva.",
+      },
+      {
+        pregunta: "¿Qué pasa si un punto no tiene CAI configurado?",
+        respuesta:
+          "La venta se guarda igual pero sin número fiscal (solo el interno FC-…). Configura el CAI del punto en la pestaña 'CAI por punto' para que las siguientes ventas salgan como comprobante fiscal.",
+      },
+      {
+        pregunta: "Veo 'Puntos de facturación pendientes: aplica scripts/officemart-004…'.",
+        respuesta:
+          "La base de datos aún no tiene las tablas del módulo. Pide al administrador que ejecute el script officemart-004 en Supabase; mientras tanto la empresa factura como antes.",
+      },
+    ],
+    keywords: [
+      "puntos de facturacion",
+      "punto de venta",
+      "sucursal",
+      "sucursales",
+      "serie",
+      "prefijo",
+      "cai por punto",
+      "establecimiento",
+      "punto de emision",
+      "foto fiscal",
+      "reimprimir",
+      "almacen por defecto",
+      "usuario por sucursal",
     ],
   },
 ]

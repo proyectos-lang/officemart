@@ -290,6 +290,58 @@ export interface UsuarioListItem {
   nombre: string
   rol: string | null
   activo: boolean
+  /** Punto de facturación asignado (script officemart-004); null = ninguno. */
+  punto_facturacion_id?: number | null
+}
+
+// ============================================
+// Asignar punto de facturación a un usuario (officemart-004). Solo admin del
+// mismo tenant. `puntoId` null = sin punto (vende con el flujo clásico).
+// ============================================
+export async function setPuntoUsuarioAction(input: {
+  usuarioId: string
+  puntoId: number | null
+}): Promise<{ error: string | null }> {
+  const auth = await assertAdminCaller()
+  if (!auth.ok) return { error: auth.error }
+
+  const admin = createAdminClient()
+  if (!admin) return { error: "Falta configurar SUPABASE_SERVICE_ROLE_KEY." }
+
+  const { data: target } = await admin
+    .from("usuarios")
+    .select("razon_social_id")
+    .eq("id", input.usuarioId)
+    .single()
+  if (!target || target.razon_social_id !== auth.razonSocialId) {
+    return { error: "Usuario no valido." }
+  }
+
+  if (input.puntoId != null) {
+    const { data: punto } = await admin
+      .from("puntos_facturacion")
+      .select("id, razon_social_id")
+      .eq("id", input.puntoId)
+      .maybeSingle()
+    if (!punto || punto.razon_social_id !== auth.razonSocialId) {
+      return { error: "El punto de facturación no existe o no es de tu empresa." }
+    }
+  }
+
+  const { error } = await admin
+    .from("usuarios")
+    .update({ punto_facturacion_id: input.puntoId })
+    .eq("id", input.usuarioId)
+
+  if (error) {
+    if (/punto_facturacion_id/i.test(error.message || "")) {
+      return { error: "Aplica scripts/officemart-004-puntos-facturacion.sql para asignar puntos." }
+    }
+    return { error: error.message || "No se pudo asignar el punto." }
+  }
+
+  revalidatePath("/configuracion/usuarios")
+  return { error: null }
 }
 
 export interface ModuloListItem {
@@ -315,12 +367,26 @@ export async function listUsuariosAction(): Promise<{
     }
   }
 
-  const [uRes, mRes, cfgRes] = await Promise.all([
-    admin
+  // `punto_facturacion_id` (officemart-004): si la columna aún no existe, se
+  // reintenta sin ella.
+  const listarUsuarios = async () => {
+    const conPunto = await admin
       .from("usuarios")
-      .select("id, nombre, rol, activo")
+      .select("id, nombre, rol, activo, punto_facturacion_id")
       .eq("razon_social_id", auth.razonSocialId)
-      .order("nombre", { ascending: true }),
+      .order("nombre", { ascending: true })
+    if (conPunto.error && /punto_facturacion_id/i.test(conPunto.error.message || "")) {
+      return admin
+        .from("usuarios")
+        .select("id, nombre, rol, activo")
+        .eq("razon_social_id", auth.razonSocialId)
+        .order("nombre", { ascending: true })
+    }
+    return conPunto
+  }
+
+  const [uRes, mRes, cfgRes] = await Promise.all([
+    listarUsuarios(),
     admin
       .from("modulos")
       .select("id, nombre, icono")

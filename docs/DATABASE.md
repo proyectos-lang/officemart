@@ -498,6 +498,22 @@ Un recibo (`numero_recibo` RC-#### de la serie `RC`, `cliente_id, fecha, monto_t
 
 ---
 
+## Officemart — puntos de facturación (script officemart-004)
+
+### `puntos_facturacion`
+`id, razon_social_id, codigo (UNIQUE por empresa), nombre, ciudad, direccion, telefono, localizacion_id (almacén/localización por defecto), serie_prefijo ('FC-SPS-' → serie interna propia; NULL = FC-#### global), activo, usuario, created_at, updated_at`. RLS por tenant. Servicio `lib/services/puntos-facturacion.ts` (`getPuntosFacturacion` devuelve `pendiente: true` si la tabla no existe; `resolverPuntoVenta` decide el punto: selección del admin → punto del usuario → único activo → null). Módulo "Puntos de Facturación".
+
+### `usuarios.punto_facturacion_id`
+Columna nullable; la asigna el admin desde Usuarios y Permisos (`setPuntoUsuarioAction`, service role) y la lee `auth-context` (`AuthUser.punto_facturacion_id`, con reintento si la columna no existe).
+
+### `facturacion_cai_puntos`
+Mismas columnas que `facturacion_cai_config` + `punto_facturacion_id bigint NOT NULL DEFAULT 0` (0 = empresa sin puntos); `UNIQUE (razon_social_id, punto_facturacion_id, tipo_documento)`. Se siembra desde `facturacion_cai_config`, que queda de solo lectura (la app la usa solo si la tabla nueva no existe). RPC `siguiente_correlativo_cai_v2(p_tipo_documento, p_punto_id)` (mismo cuerpo atómico `FOR UPDATE` del script 063; devuelve además rango, fecha límite e imprenta) y `peek_correlativo_cai_v2`. `emitirCorrelativoCai(supabase, tipo, puntoId)` intenta v2 y cae al RPC clásico solo para punto 0.
+
+### `ventas_encabezado.punto_facturacion_id / localizacion_id / fiscal_snapshot`
+Nullable. `crearVenta({punto_facturacion})` usa la serie interna del punto (`siguiente_correlativo('venta:<id>', serie_prefijo)`) o la global, el CAI del punto, y guarda la **foto fiscal** (`FiscalSnapshot`: número, CAI, establecimiento, punto, rango formateado, fecha límite, imprenta) para que tirilla/PDF/Historial reimpriman igual aunque cambie el CAI (`fiscalDesdeSnapshot`). Las notas de crédito (`crearDevolucion`) salen del punto de la venta y guardan su propia foto en `devoluciones_encabezado.fiscal_snapshot`. Índice `(razon_social_id, punto_facturacion_id)`.
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

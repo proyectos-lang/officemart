@@ -53,10 +53,12 @@ import {
   setPermisoAction,
   toggleUsuarioActivoAction,
   setRolAction,
+  setPuntoUsuarioAction,
   resetUserPasswordAction,
   listUsuariosAction,
   listPermisosAction,
 } from "./actions"
+import { getPuntosFacturacion, etiquetaPunto, type PuntoFacturacion } from "@/lib/services/puntos-facturacion"
 
 interface Usuario {
   id: string
@@ -64,6 +66,8 @@ interface Usuario {
   rol: "admin" | "usuario" | null
   activo: boolean
   email?: string | null
+  /** Punto de facturación asignado (officemart-004). */
+  punto_facturacion_id?: number | null
 }
 
 interface Modulo {
@@ -248,6 +252,24 @@ export default function UsuariosPage() {
     }
     toast({ title: next ? "Usuario activado" : "Usuario desactivado" })
     setUsuarios((list) => list.map((x) => (x.id === u.id ? { ...x, activo: next } : x)))
+  }
+
+  // Punto de facturación por usuario (officemart-004). Solo se muestra si la
+  // empresa tiene puntos.
+  const [puntos, setPuntos] = React.useState<PuntoFacturacion[]>([])
+  React.useEffect(() => {
+    getPuntosFacturacion({ soloActivos: true }).then((r) => setPuntos(r.data || []))
+  }, [])
+
+  async function handleChangePunto(u: Usuario, puntoId: number | null) {
+    if ((u.punto_facturacion_id ?? null) === puntoId) return
+    const { error } = await setPuntoUsuarioAction({ usuarioId: u.id, puntoId })
+    if (error) {
+      toast({ title: "No se pudo asignar el punto", description: error, variant: "destructive" })
+      return
+    }
+    toast({ title: puntoId == null ? "Punto quitado" : "Punto asignado" })
+    setUsuarios((list) => list.map((x) => (x.id === u.id ? { ...x, punto_facturacion_id: puntoId } : x)))
   }
 
   // Cambiar rol
@@ -496,6 +518,24 @@ export default function UsuariosPage() {
                         <SelectItem value="admin">Admin</SelectItem>
                       </SelectContent>
                     </Select>
+                    {puntos.length > 0 && (
+                      <Select
+                        value={selectedUser.punto_facturacion_id != null ? String(selectedUser.punto_facturacion_id) : "__none__"}
+                        onValueChange={(v) => handleChangePunto(selectedUser, v === "__none__" ? null : Number(v))}
+                      >
+                        <SelectTrigger className="h-8 w-[190px] text-xs" aria-label="Punto de facturación">
+                          <SelectValue placeholder="Punto de facturación" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Sin punto de facturación</SelectItem>
+                          {puntos.map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)}>
+                              {etiquetaPunto(p)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"

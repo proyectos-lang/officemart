@@ -29,6 +29,8 @@ export function tipoDocumentoLabel(codigo: string): string {
 
 export interface ConfigCai {
   id?: number
+  /** Punto de facturación dueño de la config (0 = empresa sin puntos; script officemart-004). */
+  punto_facturacion_id?: number
   tipo_documento: string
   cai: string
   establecimiento: string
@@ -93,6 +95,7 @@ export function fechaLimiteVencida(fechaLimite: string | null, hoyISO: string): 
 function normalizarFila(r: Record<string, unknown>): ConfigCai {
   return {
     id: (r.id as number) ?? undefined,
+    punto_facturacion_id: Number(r.punto_facturacion_id ?? 0),
     tipo_documento: String(r.tipo_documento ?? '01'),
     cai: String(r.cai ?? ''),
     establecimiento: String(r.establecimiento ?? '000'),
@@ -108,21 +111,47 @@ function normalizarFila(r: Record<string, unknown>): ConfigCai {
   }
 }
 
+/** Tabla ausente (42P01) o fuera del schema cache de PostgREST (PGRST205). */
+function isMissingTable(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false
+  const msg = (err.message || '').toLowerCase()
+  return err.code === '42P01' || err.code === 'PGRST205' || msg.includes('schema cache')
+}
+
+/** RPC ausente (script pendiente). */
+function isMissingFunction(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false
+  const msg = (err.message || '').toLowerCase()
+  return err.code === '42883' || err.code === 'PGRST202' || msg.includes('could not find the function')
+}
+
 /**
- * Trae todas las configuraciones CAI del tenant (una por tipo de documento).
- * Degrada a [] si la tabla no existe (script 060 sin correr).
+ * Trae las configuraciones CAI del tenant para un punto de facturación (una
+ * por tipo de documento). Desde el script officemart-004 la fuente es
+ * `facturacion_cai_puntos` (punto 0 = empresa sin puntos); si esa tabla no
+ * existe se lee la tabla clásica `facturacion_cai_config` (solo punto 0).
+ * Degrada a [] si ninguna existe (script 060 sin correr).
  */
-export async function getConfigsCai(): Promise<{ data: ConfigCai[]; error: string | null }> {
+export async function getConfigsCai(puntoId: number = 0): Promise<{ data: ConfigCai[]; error: string | null }> {
   const supabase = createClient()
   if (!supabase) return { data: [], error: 'Cliente de Supabase no disponible' }
   try {
+    const porPunto = await supabase
+      .from('facturacion_cai_puntos')
+      .select('*')
+      .eq('punto_facturacion_id', puntoId || 0)
+      .order('tipo_documento', { ascending: true })
+    if (!porPunto.error) return { data: (porPunto.data || []).map(normalizarFila), error: null }
+    if (!isMissingTable(porPunto.error)) return { data: [], error: porPunto.error.message }
+    // Tabla por punto ausente: la config clásica solo aplica al punto 0.
+    if ((puntoId || 0) !== 0) return { data: [], error: null }
     const { data, error } = await supabase
       .from('facturacion_cai_config')
       .select('*')
       .order('tipo_documento', { ascending: true })
     if (error) {
       // Tabla ausente u otra falla: no rompe la UI.
-      if (error.code === '42P01') return { data: [], error: null }
+      if (isMissingTable(error)) return { data: [], error: null }
       return { data: [], error: error.message }
     }
     return { data: (data || []).map(normalizarFila), error: null }
@@ -133,11 +162,14 @@ export async function getConfigsCai(): Promise<{ data: ConfigCai[]; error: strin
 }
 
 /**
- * Crea o actualiza la config CAI de un tipo de documento del tenant.
- * Upsert por (razon_social_id, tipo_documento) — la unicidad la impone la tabla.
+ * Crea o actualiza la config CAI de un tipo de documento del tenant para un
+ * punto de facturación. Upsert por (razon_social_id, punto, tipo_documento) en
+ * `facturacion_cai_puntos`; si esa tabla no existe (officemart-004 pendiente)
+ * cae a `facturacion_cai_config` (solo punto 0).
  */
 export async function saveConfigCai(
-  cfg: ConfigCai
+  cfg: ConfigCai,
+  puntoId: number = cfg.punto_facturacion_id ?? 0
 ): Promise<{ data: ConfigCai | null; error: string | null }> {
   const supabase = createClient()
   if (!supabase) return { data: null, error: 'Cliente de Supabase no disponible' }
@@ -175,13 +207,26 @@ export async function saveConfigCai(
   }
 
   try {
+    const porPunto = await supabase
+      .from('facturacion_cai_puntos')
+      .upsert(
+        { ...fila, punto_facturacion_id: puntoId || 0 },
+        { onConflict: 'razon_social_id,punto_facturacion_id,tipo_documento' }
+      )
+      .select('*')
+      .single()
+    if (!porPunto.error) return { data: porPunto.data ? normalizarFila(porPunto.data) : null, error: null }
+    if (!isMissingTable(porPunto.error)) return { data: null, error: porPunto.error.message }
+    if ((puntoId || 0) !== 0) {
+      return { data: null, error: 'La configuración CAI por punto requiere el script officemart-004.' }
+    }
     const { data, error } = await supabase
       .from('facturacion_cai_config')
       .upsert(fila, { onConflict: 'razon_social_id,tipo_documento' })
       .select('*')
       .single()
     if (error) {
-      if (error.code === '42P01') {
+      if (isMissingTable(error)) {
         return { data: null, error: 'La tabla de Facturación CAI no existe aún. Corre el script 060.' }
       }
       return { data: null, error: error.message }
@@ -201,44 +246,79 @@ export interface CorrelativoCaiEmitido {
   punto_emision: string
   tipo_documento: string
   cai: string | null
+  /** Datos de la autorización (solo los devuelve el RPC v2, script officemart-004). */
+  rango_inicial?: number | null
+  rango_final?: number | null
+  fecha_limite_emision?: string | null
+  imprenta_nombre?: string | null
+  imprenta_rtn?: string | null
+  imprenta_registro?: string | null
+}
+
+function mapCorrelativoFila(fila: Record<string, unknown>, tipoDocumento: string): CorrelativoCaiEmitido {
+  const num = (v: unknown) => (v == null ? null : Number(v))
+  const txt = (v: unknown) => (v == null ? null : String(v))
+  return {
+    numero: String(fila.numero),
+    correlativo: Number(fila.correlativo),
+    establecimiento: String(fila.establecimiento ?? '000'),
+    punto_emision: String(fila.punto_emision ?? '001'),
+    tipo_documento: String(fila.tipo_documento ?? tipoDocumento),
+    cai: txt(fila.cai),
+    rango_inicial: num(fila.rango_inicial),
+    rango_final: num(fila.rango_final),
+    fecha_limite_emision: txt(fila.fecha_limite_emision),
+    imprenta_nombre: txt(fila.imprenta_nombre),
+    imprenta_rtn: txt(fila.imprenta_rtn),
+    imprenta_registro: txt(fila.imprenta_registro),
+  }
 }
 
 /**
- * Emite (CONSUME) el siguiente correlativo fiscal via el RPC atómico
- * `siguiente_correlativo_cai` (script 061). Fuente de verdad del número fiscal;
- * se llama al crear la venta. Devuelve:
+ * Emite (CONSUME) el siguiente correlativo fiscal via RPC atómico. Fuente de
+ * verdad del número fiscal; se llama al crear la venta / nota de crédito.
+ * Intenta `siguiente_correlativo_cai_v2(tipo, punto)` (script officemart-004,
+ * CAI por punto de facturación, devuelve también rango/fecha límite/imprenta)
+ * y, si el RPC no existe y el punto es 0, cae al `siguiente_correlativo_cai`
+ * clásico (script 061). Devuelve:
  *   - { data, error: null }  si emitió un folio.
  *   - { data: null, error }  si no hay config / rango agotado / RPC ausente.
  * En error, el llamador puede degradar (venta sin número fiscal).
  */
 export async function emitirCorrelativoCai(
   supabase: NonNullable<ReturnType<typeof createClient>>,
-  tipoDocumento: string = '01'
+  tipoDocumento: string = '01',
+  puntoId: number = 0
 ): Promise<{ data: CorrelativoCaiEmitido | null; error: string | null }> {
   try {
+    const v2 = await supabase.rpc('siguiente_correlativo_cai_v2', {
+      p_tipo_documento: tipoDocumento,
+      p_punto_id: puntoId || 0,
+    })
+    if (!v2.error) {
+      const fila = Array.isArray(v2.data) ? v2.data[0] : v2.data
+      if (!fila || !fila.numero) return { data: null, error: 'Sin correlativo emitido' }
+      return { data: mapCorrelativoFila(fila, tipoDocumento), error: null }
+    }
+    if (!isMissingFunction(v2.error)) return { data: null, error: v2.error.message }
+    if ((puntoId || 0) !== 0) {
+      console.warn('[emitirCorrelativoCai] RPC v2 ausente; corre scripts/officemart-004 para CAI por punto.')
+      return { data: null, error: 'CAI por punto requiere el script officemart-004.' }
+    }
+
     const { data, error } = await supabase.rpc('siguiente_correlativo_cai', {
       p_tipo_documento: tipoDocumento,
     })
     if (error) {
       // 42883 = función inexistente (script 061 sin correr). No es error "duro".
-      if (error.code === '42883') {
+      if (isMissingFunction(error)) {
         console.warn('[emitirCorrelativoCai] RPC ausente; corre scripts/061.')
       }
       return { data: null, error: error.message }
     }
     const fila = Array.isArray(data) ? data[0] : data
     if (!fila || !fila.numero) return { data: null, error: 'Sin correlativo emitido' }
-    return {
-      data: {
-        numero: String(fila.numero),
-        correlativo: Number(fila.correlativo),
-        establecimiento: String(fila.establecimiento ?? '000'),
-        punto_emision: String(fila.punto_emision ?? '001'),
-        tipo_documento: String(fila.tipo_documento ?? tipoDocumento),
-        cai: fila.cai != null ? String(fila.cai) : null,
-      },
-      error: null,
-    }
+    return { data: mapCorrelativoFila(fila, tipoDocumento), error: null }
   } catch (e) {
     console.warn('[emitirCorrelativoCai] excepción:', e)
     return { data: null, error: 'Error de conexión' }
@@ -247,13 +327,19 @@ export async function emitirCorrelativoCai(
 
 /**
  * PEEK (solo lectura, NO consume): el número fiscal que se emitiría a
- * continuación, para mostrarlo en Nueva Venta. Devuelve null si no hay config
- * activa o el RPC no está disponible.
+ * continuación para un punto, para mostrarlo en Nueva Venta. Devuelve null si
+ * no hay config activa o el RPC no está disponible.
  */
-export async function peekCorrelativoCai(tipoDocumento: string = '01'): Promise<string | null> {
+export async function peekCorrelativoCai(tipoDocumento: string = '01', puntoId: number = 0): Promise<string | null> {
   const supabase = createClient()
   if (!supabase) return null
   try {
+    const v2 = await supabase.rpc('peek_correlativo_cai_v2', {
+      p_tipo_documento: tipoDocumento,
+      p_punto_id: puntoId || 0,
+    })
+    if (!v2.error) return typeof v2.data === 'string' && v2.data ? v2.data : null
+    if (!isMissingFunction(v2.error) || (puntoId || 0) !== 0) return null
     const { data, error } = await supabase.rpc('peek_correlativo_cai', {
       p_tipo_documento: tipoDocumento,
     })

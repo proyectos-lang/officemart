@@ -6,6 +6,7 @@ import { registrarMovimientoCuenta, recalcCadenaSaldoCuenta } from "@/lib/servic
 import { getHondurasNowISO } from "@/lib/utils/honduras-time"
 import { emitirCorrelativo, SERIES } from "@/lib/services/correlativos"
 import { emitirCorrelativoCai } from "@/lib/services/facturacion-cai"
+import { construirFiscalSnapshot } from "@/lib/services/puntos-facturacion"
 import { registrarAuditoria } from "@/lib/services/auditoria"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
@@ -242,14 +243,24 @@ export async function crearDevolucion(
   //     best-effort: si no existen, se ignoran).
   let ventaAnulada = false
   let ventaNumeroFiscal: string | null = null
+  let ventaPuntoId = 0
   {
-    const { data: extra } = await supabase
+    let extraRes = await supabase
       .from("ventas_encabezado")
-      .select("anulada_at, numero_fiscal")
+      .select("anulada_at, numero_fiscal, punto_facturacion_id")
       .eq("id", input.venta_id)
       .maybeSingle()
+    if (extraRes.error && /punto_facturacion_id/i.test(extraRes.error.message || "")) {
+      extraRes = await supabase
+        .from("ventas_encabezado")
+        .select("anulada_at, numero_fiscal")
+        .eq("id", input.venta_id)
+        .maybeSingle()
+    }
+    const extra = extraRes.data as Record<string, unknown> | null
     ventaAnulada = !!extra?.anulada_at
     ventaNumeroFiscal = (extra?.numero_fiscal as string | null) ?? null
+    ventaPuntoId = Number(extra?.punto_facturacion_id ?? 0) || 0
   }
   if (ventaAnulada) return { data: null, error: "No se puede devolver una factura anulada" }
 
@@ -310,12 +321,20 @@ export async function crearDevolucion(
   // 4b) Nota de crédito fiscal (CAI tipo 06) cuando la venta fue factura fiscal.
   //     Degradado: si no hay config 06 / RPC / columnas, la devolución sigue
   //     sin NC y se deja rastro en consola.
+  //     La NC sale del MISMO punto de facturación de la venta (officemart-004)
+  //     y guarda la foto fiscal de la autorización usada.
   if (input.emitirNotaCreditoFiscal && ventaNumeroFiscal) {
-    const { data: nc, error: ncErr } = await emitirCorrelativoCai(supabase, "06")
+    const { data: nc, error: ncErr } = await emitirCorrelativoCai(supabase, "06", ventaPuntoId)
     if (nc) {
       const { error: upErr } = await supabase
         .from("devoluciones_encabezado")
-        .update({ numero_fiscal: nc.numero, cai_emitido: nc.cai, tipo_documento_fiscal: nc.tipo_documento })
+        .update({
+          numero_fiscal: nc.numero,
+          cai_emitido: nc.cai,
+          tipo_documento_fiscal: nc.tipo_documento,
+          punto_facturacion_id: ventaPuntoId || null,
+          fiscal_snapshot: construirFiscalSnapshot(nc, ventaPuntoId),
+        })
         .eq("id", devolucionId)
       if (upErr) console.warn("[crearDevolucion] NC emitida pero no guardada (columnas officemart-003?):", upErr.message)
     } else {

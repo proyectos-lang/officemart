@@ -22,6 +22,8 @@ export interface AuthUser {
   modulos_habilitados: string[]
   /** Feature flags / mini-personalizaciones de la empresa (con defaults). */
   flags: FeatureFlags
+  /** Punto de facturación asignado al usuario (script officemart-004); null = ninguno. */
+  punto_facturacion_id: number | null
 }
 
 interface AuthContextValue {
@@ -47,11 +49,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         // 1) Perfil + razon social (JOIN). El id de usuarios coincide con auth.users.id (UUID).
-        const { data: perfil, error } = await supabase
+        //    `punto_facturacion_id` es del script officemart-004: si la columna no
+        //    existe todavía, se reintenta sin ella.
+        let perfilRes = await supabase
           .from("usuarios")
-          .select("id, razon_social_id, nombre, rol, activo, razon_social(nombre_empresa, logo_url)")
+          .select("id, razon_social_id, nombre, rol, activo, punto_facturacion_id, razon_social(nombre_empresa, logo_url)")
           .eq("id", authUserId)
           .single()
+        if (perfilRes.error && /punto_facturacion_id/i.test(perfilRes.error.message || "")) {
+          perfilRes = await supabase
+            .from("usuarios")
+            .select("id, razon_social_id, nombre, rol, activo, razon_social(nombre_empresa, logo_url)")
+            .eq("id", authUserId)
+            .single()
+        }
+        const { data: perfil, error } = perfilRes as {
+          data: (Record<string, any> & { punto_facturacion_id?: number | null }) | null
+          error: { message?: string } | null
+        }
 
         if (error) {
           console.log("Error cargando perfil desde 'usuarios':", error)
@@ -144,6 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           modulos_deshabilitados: modulosDeshabilitados,
           modulos_habilitados: modulosHabilitados,
           flags,
+          punto_facturacion_id: perfil.punto_facturacion_id ?? null,
         }
       } catch (err) {
         console.log("Excepcion cargando perfil:", err)

@@ -6,6 +6,8 @@ import { ajustarStock } from '@/lib/services/stock'
 import { getHondurasNowISO } from '@/lib/utils/honduras-time'
 import { revertirDevolucionesDeVenta } from '@/lib/services/devoluciones'
 import { emitirCorrelativoCai } from '@/lib/services/facturacion-cai'
+import { emitirCorrelativo, peekCorrelativo } from '@/lib/services/correlativos'
+import { construirFiscalSnapshot, serieVentaDePunto, type PuntoFacturacion } from '@/lib/services/puntos-facturacion'
 import { ejecutarVigentes, esVentaVigente, filtrarVigentesActivo } from '@/lib/services/ventas-filtros'
 import { registrarReciboCobro, RECIBOS_FEATURE_PENDING } from '@/lib/services/recibos'
 import { registrarAuditoria } from '@/lib/services/auditoria'
@@ -96,6 +98,14 @@ export interface VentaEncabezado {
   /** 'Anulacion' | 'Reclamo' */
   anulacion_tipo?: string | null
   reclamo_id?: number | null
+  /**
+   * Punto de facturación (script officemart-004). NULL = empresa sin puntos.
+   * `localizacion_id` es la localización real desde la que salió el stock y
+   * `fiscal_snapshot` la foto de la autorización CAI usada (para reimprimir).
+   */
+  punto_facturacion_id?: number | null
+  localizacion_id?: number | null
+  fiscal_snapshot?: Record<string, unknown> | null
 }
 
 export interface VentaDetalle {
@@ -165,7 +175,9 @@ export interface PagoVentaDetalle extends PagoVentaDetalleInput {
  * aun no esta desplegado, cae al legacy COUNT(*)+1 (que tiene condicion de
  * carrera, pero es solo el preview).
  */
-export async function getNextCorrelativo(): Promise<string> {
+export async function getNextCorrelativo(
+  punto?: Pick<PuntoFacturacion, 'id' | 'serie_prefijo'> | null
+): Promise<string> {
   if (!isSupabaseConfigured()) {
     const saved = localStorage.getItem('ventas_encabezado')
     const ventas: VentaEncabezado[] = saved ? JSON.parse(saved) : []
@@ -177,6 +189,13 @@ export async function getNextCorrelativo(): Promise<string> {
   if (!supabase) return 'FC-0001'
 
   try {
+    // Punto con serie interna propia (script officemart-004): vista previa de
+    // SU serie. Si el RPC de correlativos no existe, cae a la serie global.
+    const seriePunto = serieVentaDePunto(punto)
+    if (seriePunto) {
+      const { numero } = await peekCorrelativo(supabase, seriePunto.serie, seriePunto.prefijo, 4)
+      if (numero) return numero
+    }
     const { data, error } = await supabase.rpc('peek_correlativo_venta')
     if (!error && typeof data === 'string' && data) return data
     // Fallback legacy (script 052 no aplicado): COUNT(*)+1.
@@ -625,6 +644,13 @@ interface CrearVentaData {
    * bloquea: se crea sin número fiscal (modo degradado) y se avisa en consola.
    */
   emitirNumeroFiscal?: boolean
+  /**
+   * Punto de facturación desde el que se emite (script officemart-004). Si
+   * viene, la venta guarda `punto_facturacion_id`, usa la serie interna del
+   * punto (si tiene `serie_prefijo`) y el CAI configurado para ese punto. Si
+   * es null/ausente, la empresa trabaja sin puntos (punto 0, flujo clásico).
+   */
+  punto_facturacion?: Pick<PuntoFacturacion, 'id' | 'serie_prefijo'> | null
 }
 
 /**
@@ -910,23 +936,36 @@ export async function crearVenta(
     // `emitirCorrelativoVenta` devuelve null y conservamos el numero del cliente
     // (modo degradado, mismo comportamiento que antes). En importaciones
     // (`conservarNumeroFactura`) se respeta el numero del documento origen.
-    const numeroAtomico = data.conservarNumeroFactura
-      ? null
-      : await emitirCorrelativoVenta(supabase)
+    // Punto de facturación (officemart-004): serie interna propia si el punto
+    // tiene prefijo; si el RPC de correlativos falta, cae a la serie global.
+    const punto = data.punto_facturacion ?? null
+    const puntoId = punto?.id ?? 0
+    const seriePunto = serieVentaDePunto(punto)
+    let numeroAtomico: string | null = null
+    if (!data.conservarNumeroFactura) {
+      if (seriePunto) {
+        const { numero } = await emitirCorrelativo(supabase, seriePunto.serie, seriePunto.prefijo, 4)
+        numeroAtomico = numero
+      }
+      if (!numeroAtomico) numeroAtomico = await emitirCorrelativoVenta(supabase)
+    }
 
     // Numero FISCAL CAI (SAR Honduras): SOLO si la empresa tiene Facturación CAI
     // activa (`emitirNumeroFiscal`) y no es una importacion. Es independiente del
     // FC-#### interno. Si la config CAI no esta lista o el RPC no existe, la venta
     // NO se bloquea: se crea sin numero fiscal (degradado) y se avisa en consola.
+    // Con puntos, el CAI es el del punto (RPC v2) y se guarda la foto fiscal.
     let numeroFiscal: string | null = null
     let caiEmitido: string | null = null
     let tipoDocFiscal: string | null = null
+    let fiscalSnapshot: Record<string, unknown> | null = null
     if (data.emitirNumeroFiscal && !data.conservarNumeroFactura) {
-      const { data: corr, error: corrErr } = await emitirCorrelativoCai(supabase, '01')
+      const { data: corr, error: corrErr } = await emitirCorrelativoCai(supabase, '01', puntoId)
       if (corr) {
         numeroFiscal = corr.numero
         caiEmitido = corr.cai
         tipoDocFiscal = corr.tipo_documento
+        fiscalSnapshot = construirFiscalSnapshot(corr, puntoId) as unknown as Record<string, unknown>
       } else {
         console.warn('[crearVenta] no se emitio numero fiscal CAI:', corrErr)
       }
@@ -948,6 +987,11 @@ export async function crearVenta(
       valorpago: valorpagoCalculado,
       estado_pago: estadoPagoCalculado,
       almacen_id: data.almacen_id,
+      // Punto, localización real y foto fiscal (officemart-004; reintento sin
+      // ellas más abajo si el script no se aplicó).
+      punto_facturacion_id: punto?.id ?? null,
+      localizacion_id: data.localizacion_id || null,
+      fiscal_snapshot: fiscalSnapshot,
       ...stamp
     }
 
@@ -1009,6 +1053,25 @@ export async function crearVenta(
       const retry = await supabase
         .from('ventas_encabezado')
         .insert(sinVendedor)
+        .select()
+        .single()
+      ventaData = retry.data
+      ventaError = retry.error
+    }
+
+    // Fallback: columnas de punto de facturación ausentes (script officemart-004
+    // pendiente): reintentamos sin ellas; la venta se guarda sin punto ni foto.
+    if (ventaError && /punto_facturacion_id|localizacion_id|fiscal_snapshot/i.test(ventaError.message || '')) {
+      console.warn('[crearVenta] Columnas de punto de facturación no existen. Aplica scripts/officemart-004-puntos-facturacion.sql.')
+      const { punto_facturacion_id: _p, localizacion_id: _l, fiscal_snapshot: _f, ...sinPunto } =
+        encabezadoConAlmacen as {
+          punto_facturacion_id?: number | null
+          localizacion_id?: number | null
+          fiscal_snapshot?: Record<string, unknown> | null
+        } & Record<string, unknown>
+      const retry = await supabase
+        .from('ventas_encabezado')
+        .insert(sinPunto)
         .select()
         .single()
       ventaData = retry.data

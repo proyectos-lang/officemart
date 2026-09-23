@@ -63,6 +63,14 @@ import {
   type PagoVentaDetalleInput,
 } from "@/lib/services/ventas"
 import { getVendedores, getVendedorDeUsuario, resolverVendedorPorDefecto, type Vendedor } from "@/lib/services/vendedores"
+import {
+  getPuntosFacturacion,
+  resolverPuntoVenta,
+  fiscalDesdeSnapshot,
+  parseFiscalSnapshot,
+  etiquetaPunto,
+  type PuntoFacturacion,
+} from "@/lib/services/puntos-facturacion"
 import { useTenant } from "@/lib/hooks/use-tenant"
 import { useAuth } from "@/lib/contexts/auth-context"
 import { getListaAplicadaCliente, calcularPrecioLista, type ListaAplicada } from "@/lib/services/listas-precios"
@@ -151,6 +159,16 @@ export default function NuevaVentaPage() {
   // Vendedor que ES el usuario logueado (si esta vinculado): se preselecciona.
   const [vendedorUsuarioId, setVendedorUsuarioId] = React.useState<number | null>(null)
   const [numeroFactura, setNumeroFactura] = React.useState("")
+  // Puntos de facturación (script officemart-004). "" = sin punto (flujo clásico).
+  // El punto define serie interna, CAI y almacén/localización por defecto.
+  const [puntos, setPuntos] = React.useState<PuntoFacturacion[]>([])
+  const [puntoId, setPuntoId] = React.useState<string>("")
+  const puntoSeleccionado = React.useMemo(
+    () => puntos.find((p) => String(p.id) === puntoId) ?? null,
+    [puntos, puntoId]
+  )
+  // El admin (o un usuario sin punto asignado) puede cambiar de punto.
+  const puedeElegirPunto = puntos.length > 1 && (esAdmin || user?.punto_facturacion_id == null)
   // Fecha local (dia de negocio). NO usar toISOString(): de noche adelanta el dia.
   const [fecha, setFecha] = React.useState(hoyISO())
   // ISV desactivado por defecto: la mayoria de ventas se registran sin ISV.
@@ -235,12 +253,19 @@ export default function NuevaVentaPage() {
     setLoading(true)
     try {
       console.log("[NuevaVenta] cargando datos...")
+      // Punto de facturación primero: define la serie del correlativo a mostrar.
+      const puntosRes = await getPuntosFacturacion({ soloActivos: true })
+      const listaPuntos = puntosRes.data || []
+      const puntoInicial = resolverPuntoVenta(user, listaPuntos)
+      setPuntos(listaPuntos)
+      setPuntoId(puntoInicial?.id != null ? String(puntoInicial.id) : "")
+
       const [clientesRes, productosRes, almacenesRes, localizacionesRes, correlativo, cuentasRes, marcasRes, categoriasRes, vendedoresRes, vendedorUsuario] = await Promise.all([
         getClientes({ soloActivos: true }),
         getProductos(),
         getAlmacenes(),
         getLocalizaciones(),
-        getNextCorrelativo(),
+        getNextCorrelativo(puntoInicial),
         getCuentas(),
         getMarcas(),
         getCategorias(),
@@ -283,11 +308,14 @@ export default function NuevaVentaPage() {
       // solo Efectivo / Credito (modo degradado).
       setCuentas((cuentasRes.data || []).filter((c) => c.activo ?? true))
       
-      // Preseleccion: si hay una localizacion marcada como "Punto de venta"
-      // (config 041), se abre ESA (con su almacen) automaticamente. Si no,
-      // cae al default de almacen unico.
+      // Preseleccion: la localizacion del punto de facturación del usuario
+      // (officemart-004) tiene prioridad; si no, la marcada como "Punto de
+      // venta" (config 041); si no, el default de almacen unico.
       const locs = localizacionesRes.data || []
-      const puntoVenta = locs.find((l) => l.es_punto_venta)
+      const locPunto = puntoInicial?.localizacion_id != null
+        ? locs.find((l) => l.id === puntoInicial.localizacion_id)
+        : undefined
+      const puntoVenta = locPunto ?? locs.find((l) => l.es_punto_venta)
       if (puntoVenta) {
         setAlmacenId(String(puntoVenta.almacen_id))
         setLocalizacionesFiltradas(locs.filter((l) => l.almacen_id === puntoVenta.almacen_id))
@@ -310,6 +338,26 @@ export default function NuevaVentaPage() {
       })
     } finally {
       setLoading(false)
+    }
+  }
+
+  /**
+   * Cambio de punto de facturación (solo admin / usuario sin punto): refresca
+   * la vista previa del correlativo (serie del punto) y abre su almacén.
+   */
+  async function handlePuntoChange(nuevoPuntoId: string) {
+    setPuntoId(nuevoPuntoId)
+    const punto = puntos.find((p) => String(p.id) === nuevoPuntoId) ?? null
+    const correlativo = await getNextCorrelativo(punto)
+    setNumeroFactura(correlativo)
+    if (punto?.localizacion_id != null) {
+      const loc = localizaciones.find((l) => l.id === punto.localizacion_id)
+      if (loc) {
+        setAlmacenId(String(loc.almacen_id))
+        setLocalizacionesFiltradas(localizaciones.filter((l) => l.almacen_id === loc.almacen_id))
+        setLocalizacionId(String(loc.id))
+        fetchStockForLineas(Number(loc.id))
+      }
     }
   }
 
@@ -1090,6 +1138,8 @@ export default function NuevaVentaPage() {
         pagos_detalle: pagosDetalle.map(({ _id: _omit, ...rest }) => rest),
         // Emite numero fiscal CAI si la empresa tiene Facturación CAI activa.
         emitirNumeroFiscal: user?.flags?.facturacion_cai ?? false,
+        // Punto de facturación (serie interna + CAI del punto), si hay.
+        punto_facturacion: puntoSeleccionado,
       })
 
       if (error) {
@@ -1097,12 +1147,16 @@ export default function NuevaVentaPage() {
         return
       }
 
-      toast({ title: "Venta creada", description: `Factura ${numeroFactura} generada correctamente` })
-      
+      // El numero DEFINITIVO lo asigna el servidor (correlativo atomico); el de
+      // la pantalla era solo una vista previa y puede haber cambiado.
+      const numeroDefinitivo = data?.numero_factura || numeroFactura
+      toast({ title: "Venta creada", description: `Factura ${numeroDefinitivo} generada correctamente` })
+
       const ventaData = {
         encabezado: {
           ...encabezado,
           id: data?.id,
+          numero_factura: numeroDefinitivo,
           cliente_nombre: selectedCliente?.nombre || "",
           fecha_venta: encabezado.fecha_venta,
           // Copiar el numero fiscal CAI emitido por el servidor: la carta A4
@@ -1110,6 +1164,8 @@ export default function NuevaVentaPage() {
           numero_fiscal: data?.numero_fiscal ?? null,
           cai_emitido: data?.cai_emitido ?? null,
           tipo_documento_fiscal: data?.tipo_documento_fiscal ?? null,
+          punto_facturacion_id: data?.punto_facturacion_id ?? puntoSeleccionado?.id ?? null,
+          fiscal_snapshot: data?.fiscal_snapshot ?? null,
         },
         detalles: lineas.map((l, i) => ({ 
           id: i + 1, 
@@ -1143,25 +1199,36 @@ export default function NuevaVentaPage() {
       // Bloque fiscal CAI: solo si la empresa tiene Facturación CAI activa Y la
       // venta obtuvo un numero fiscal (`data.numero_fiscal`). Trae la config CAI
       // (rango, fecha limite, imprenta) para el encabezado del comprobante SAR.
+      // Con puntos (officemart-004) la venta trae su foto fiscal; si no, se
+      // lee la config CAI vigente del punto (0 = empresa sin puntos).
       let fiscal: TirillaFiscal | null = null
       if ((user?.flags?.facturacion_cai ?? false) && data?.numero_fiscal) {
-        const { data: cfgs } = await getConfigsCai()
-        const cfg: ConfigCai | undefined = cfgs.find((c) => c.tipo_documento === "01")
         const desglose = calcularDesgloseFiscal(subtotal - montoDescuento, isv, mostrarIsv)
         const esConsumidorFinal = !selectedCliente?.rtn
+        const foto = fiscalDesdeSnapshot(parseFiscalSnapshot(data.fiscal_snapshot))
+        let base: NonNullable<ReturnType<typeof fiscalDesdeSnapshot>>
+        if (foto) {
+          base = { ...foto, cai: data.cai_emitido || foto.cai }
+        } else {
+          const { data: cfgs } = await getConfigsCai(puntoSeleccionado?.id ?? 0)
+          const cfg: ConfigCai | undefined = cfgs.find((c) => c.tipo_documento === "01")
+          base = {
+            cai: data.cai_emitido || cfg?.cai || "",
+            rangoDesde: cfg ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_inicial) : null,
+            rangoHasta: cfg && cfg.rango_final > 0 ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_final) : null,
+            fechaLimite: cfg?.fecha_limite_emision ? fmtFechaCorta(cfg.fecha_limite_emision) : null,
+            imprentaNombre: cfg?.imprenta_nombre || null,
+            imprentaRtn: cfg?.imprenta_rtn || null,
+            imprentaRegistro: cfg?.imprenta_registro || null,
+          }
+        }
         fiscal = {
-          cai: data.cai_emitido || cfg?.cai || "",
+          ...base,
           numeroFiscal: data.numero_fiscal,
-          rangoDesde: cfg ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_inicial) : null,
-          rangoHasta: cfg && cfg.rango_final > 0 ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_final) : null,
-          fechaLimite: cfg?.fecha_limite_emision ? fmtFechaCorta(cfg.fecha_limite_emision) : null,
           clienteRtn: selectedCliente?.rtn || null,
           esConsumidorFinal,
           ...desglose,
           totalEnLetras: totalEnLetras(total),
-          imprentaNombre: cfg?.imprenta_nombre || null,
-          imprentaRtn: cfg?.imprenta_rtn || null,
-          imprentaRegistro: cfg?.imprenta_registro || null,
         }
       }
 
@@ -1180,7 +1247,7 @@ export default function NuevaVentaPage() {
           // por lo que una ruta relativa no resolveria.
           logoUrl: tirillaLogoUrl(user?.razon_social_id),
         },
-        numeroFactura: numeroFactura,
+        numeroFactura: numeroDefinitivo,
         fechaISO: encabezado.fecha_venta,
         cliente: selectedCliente?.nombre || "Consumidor Final",
         fiscal,
@@ -1214,7 +1281,7 @@ export default function NuevaVentaPage() {
       // las opciones de impresion (tirilla 80 mm / factura PDF).
       resetForm()
       setVentaExitosa({
-        numeroFactura: ventaData.encabezado.numero_factura ?? numeroFactura,
+        numeroFactura: numeroDefinitivo,
         total: ventaData.encabezado.total_venta ?? total,
         tirilla,
         ventaData,
@@ -1258,23 +1325,33 @@ export default function NuevaVentaPage() {
     // la venta tiene numero fiscal. Reusa la config CAI y el desglose.
     let fiscal: FacturaPdfFiscal | null = null
     if (enc.numero_fiscal) {
-      const { data: cfgs } = await getConfigsCai()
-      const cfg = cfgs.find((c) => c.tipo_documento === (enc.tipo_documento_fiscal || "01"))
       const subt = enc.subtotal ?? 0
       const descMonto = +(subt * ((enc.descuento ?? 0) / 100)).toFixed(2)
       const desglose = calcularDesgloseFiscal(subt - descMonto, enc.impuesto_total ?? 0, !!enc.aplica_impuesto)
+      // Foto fiscal de la venta (officemart-004) o, si no hay, CAI vigente del punto.
+      const foto = fiscalDesdeSnapshot(parseFiscalSnapshot(enc.fiscal_snapshot))
+      let base: NonNullable<ReturnType<typeof fiscalDesdeSnapshot>>
+      if (foto) {
+        base = { ...foto, cai: enc.cai_emitido || foto.cai }
+      } else {
+        const { data: cfgs } = await getConfigsCai(enc.punto_facturacion_id ?? 0)
+        const cfg = cfgs.find((c) => c.tipo_documento === (enc.tipo_documento_fiscal || "01"))
+        base = {
+          cai: enc.cai_emitido || cfg?.cai || "",
+          rangoDesde: cfg ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_inicial) : null,
+          rangoHasta: cfg && cfg.rango_final > 0 ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_final) : null,
+          fechaLimite: cfg?.fecha_limite_emision ? fmtFechaCorta(cfg.fecha_limite_emision) : null,
+          imprentaNombre: cfg?.imprenta_nombre || null,
+          imprentaRtn: cfg?.imprenta_rtn || null,
+          imprentaRegistro: cfg?.imprenta_registro || null,
+        }
+      }
       fiscal = {
-        cai: enc.cai_emitido || cfg?.cai || "",
+        ...base,
         numeroFiscal: enc.numero_fiscal,
-        rangoDesde: cfg ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_inicial) : null,
-        rangoHasta: cfg && cfg.rango_final > 0 ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_final) : null,
-        fechaLimite: cfg?.fecha_limite_emision ? fmtFechaCorta(cfg.fecha_limite_emision) : null,
         esConsumidorFinal: !cliente?.rtn,
         ...desglose,
         totalEnLetras: totalEnLetras(enc.total_venta ?? 0),
-        imprentaNombre: cfg?.imprenta_nombre || null,
-        imprentaRtn: cfg?.imprenta_rtn || null,
-        imprentaRegistro: cfg?.imprenta_registro || null,
       }
     }
 
@@ -1369,6 +1446,25 @@ export default function NuevaVentaPage() {
               <Receipt className="h-4 w-4 md:h-5 md:w-5" />
               <span className="font-mono font-bold text-base md:text-lg">{numeroFactura}</span>
             </div>
+            {/* Punto de facturación (officemart-004): selector para admin /
+                usuario sin punto; etiqueta fija para el resto. */}
+            {puedeElegirPunto ? (
+              <Select value={puntoId || "__none__"} onValueChange={(v) => handlePuntoChange(v === "__none__" ? "" : v)}>
+                <SelectTrigger className="h-9 w-44 md:w-52 bg-background text-sm">
+                  <SelectValue placeholder="Punto de facturación" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin punto (serie global)</SelectItem>
+                  {puntos.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>{etiquetaPunto(p)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : puntoSeleccionado ? (
+              <Badge variant="outline" className="gap-1 font-normal">
+                <MapPin className="h-3 w-3" /> {etiquetaPunto(puntoSeleccionado)}
+              </Badge>
+            ) : null}
             <Input
               type="date"
               value={fecha}

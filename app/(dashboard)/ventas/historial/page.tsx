@@ -51,6 +51,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import { getClientes, getAlmacenes, getProductos, type Cliente, type Almacen, type Producto } from "@/lib/services/catalogos"
 import { getVendedores, type Vendedor } from "@/lib/services/vendedores"
+import {
+  getPuntosFacturacion,
+  fiscalDesdeSnapshot,
+  parseFiscalSnapshot,
+  etiquetaPunto,
+  type PuntoFacturacion,
+} from "@/lib/services/puntos-facturacion"
 import { getCuentas, type CuentaConfig } from "@/lib/services/cuentas"
 import { useCajaSesion } from "@/lib/hooks/use-caja-sesion"
 import { ImportarVentasDialog } from "./importar-ventas-dialog"
@@ -105,6 +112,15 @@ export default function HistorialVentasPage() {
     return m
   }, [vendedores])
   const mostrarVendedor = vendedores.length > 0
+  // Puntos de facturación (officemart-004): columna y filtro solo si hay.
+  const [puntos, setPuntos] = React.useState<PuntoFacturacion[]>([])
+  const puntoNombre = React.useMemo(() => {
+    const m = new Map<number, string>()
+    for (const p of puntos) if (p.id != null) m.set(p.id, etiquetaPunto(p))
+    return m
+  }, [puntos])
+  const mostrarPunto = puntos.length > 0
+  const [filtroPuntoId, setFiltroPuntoId] = React.useState("")
   const [productos, setProductos] = React.useState<Producto[]>([])
   /**
    * Map<venta_id, "Efectivo"|"Banco"|"Mixto"|"Credito"|"Otro">. Lo poblamos en
@@ -202,7 +218,7 @@ export default function HistorialVentasPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [ventasRes, clientesRes, almacenesRes, productosRes, vendedoresRes] = await Promise.all([
+      const [ventasRes, clientesRes, almacenesRes, productosRes, vendedoresRes, puntosRes] = await Promise.all([
         // Carga TODAS las facturas (bucle por rangos en el servicio) para poder
         // paginar client-side por hojas de 50/100/1000.
         getVentas(),
@@ -210,12 +226,14 @@ export default function HistorialVentasPage() {
         getAlmacenes(),
         getProductos(),
         getVendedores(),
+        getPuntosFacturacion(),
       ])
       setVentas(ventasRes.data)
       setClientes(clientesRes.data)
       setAlmacenes(almacenesRes.data)
       setProductos(productosRes.data)
       setVendedores(vendedoresRes.data || [])
+      setPuntos(puntosRes.data || [])
 
       // Batch (chunked en el servicio) para el metodo de pago y la comision de
       // TODAS las ventas.
@@ -308,9 +326,10 @@ export default function HistorialVentasPage() {
       const matchCliente = !filtroClienteIdFacturas || v.cliente_nombre === clienteSeleccionado
       const matchAlmacen = !filtroAlmacenIdFacturas || v.almacen_nombre === almacenSeleccionado
       const matchEstado = !filtroEstadoPago || v.estado_pago === filtroEstadoPago
-      return matchInicio && matchFin && matchCliente && matchAlmacen && matchEstado
+      const matchPunto = !filtroPuntoId || String(v.punto_facturacion_id ?? "") === filtroPuntoId
+      return matchInicio && matchFin && matchCliente && matchAlmacen && matchEstado && matchPunto
     })
-  }, [ventas, filtroFechaInicioFacturas, filtroFechaFinFacturas, filtroClienteIdFacturas, filtroAlmacenIdFacturas, filtroEstadoPago, clientes, almacenes, mostrarAnuladas])
+  }, [ventas, filtroFechaInicioFacturas, filtroFechaFinFacturas, filtroClienteIdFacturas, filtroAlmacenIdFacturas, filtroEstadoPago, filtroPuntoId, clientes, almacenes, mostrarAnuladas])
 
   // --- Filtered detalle analitico ---
   const detalleFiltrado = React.useMemo(() => {
@@ -785,26 +804,38 @@ export default function HistorialVentasPage() {
       // Reconstruye el bloque fiscal CAI si la venta se emitio como comprobante
       // (tiene numero_fiscal persistido). Toma la config CAI vigente para el
       // rango/fecha limite/imprenta del encabezado.
+      // Con puntos (officemart-004) se usa la FOTO fiscal guardada en la venta
+      // (así se reimprime igual aunque el CAI haya cambiado); si no hay foto,
+      // la config CAI vigente del punto de la venta (0 = sin puntos).
       let fiscal: TirillaFiscal | null = null
       if (venta.numero_fiscal) {
-        const { data: cfgs } = await getConfigsCai()
-        const cfg: ConfigCai | undefined = cfgs.find(
-          (c) => c.tipo_documento === (venta.tipo_documento_fiscal || "01"),
-        )
         const desglose = calcularDesgloseFiscal(subtotal - descuentoMonto, venta.impuesto_total ?? 0, !!venta.aplica_impuesto)
+        const foto = fiscalDesdeSnapshot(parseFiscalSnapshot(venta.fiscal_snapshot))
+        let base: NonNullable<ReturnType<typeof fiscalDesdeSnapshot>>
+        if (foto) {
+          base = { ...foto, cai: venta.cai_emitido || foto.cai }
+        } else {
+          const { data: cfgs } = await getConfigsCai(venta.punto_facturacion_id ?? 0)
+          const cfg: ConfigCai | undefined = cfgs.find(
+            (c) => c.tipo_documento === (venta.tipo_documento_fiscal || "01"),
+          )
+          base = {
+            cai: venta.cai_emitido || cfg?.cai || "",
+            rangoDesde: cfg ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_inicial) : null,
+            rangoHasta: cfg && cfg.rango_final > 0 ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_final) : null,
+            fechaLimite: cfg?.fecha_limite_emision ? fmtFechaCorta(cfg.fecha_limite_emision) : null,
+            imprentaNombre: cfg?.imprenta_nombre || null,
+            imprentaRtn: cfg?.imprenta_rtn || null,
+            imprentaRegistro: cfg?.imprenta_registro || null,
+          }
+        }
         fiscal = {
-          cai: venta.cai_emitido || cfg?.cai || "",
+          ...base,
           numeroFiscal: venta.numero_fiscal,
-          rangoDesde: cfg ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_inicial) : null,
-          rangoHasta: cfg && cfg.rango_final > 0 ? formatearCorrelativoCai(cfg.establecimiento, cfg.punto_emision, cfg.tipo_documento, cfg.rango_final) : null,
-          fechaLimite: cfg?.fecha_limite_emision ? fmtFechaCorta(cfg.fecha_limite_emision) : null,
           clienteRtn: cliente?.rtn || null,
           esConsumidorFinal: !cliente?.rtn,
           ...desglose,
           totalEnLetras: totalEnLetras(venta.total_venta ?? 0),
-          imprentaNombre: cfg?.imprenta_nombre || null,
-          imprentaRtn: cfg?.imprenta_rtn || null,
-          imprentaRegistro: cfg?.imprenta_registro || null,
         }
       }
 
@@ -1059,6 +1090,26 @@ export default function HistorialVentasPage() {
                   </Select>
                 </div>
 
+                {/* Punto de facturación (solo si la empresa tiene puntos) */}
+                {mostrarPunto && (
+                  <div>
+                    <Label className="text-xs text-stone-600 mb-1.5 block">Punto</Label>
+                    <Select value={filtroPuntoId || "all"} onValueChange={(v) => setFiltroPuntoId(v === "all" ? "" : v)}>
+                      <SelectTrigger className="bg-white border-stone-200">
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos los puntos</SelectItem>
+                        {puntos.map((p) => (
+                          <SelectItem key={p.id} value={String(p.id)}>
+                            {etiquetaPunto(p)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
                 {/* Estado Pago */}
                 <div>
                   <Label className="text-xs text-stone-600 mb-1.5 block">Estado Pago</Label>
@@ -1112,6 +1163,9 @@ export default function HistorialVentasPage() {
                     {mostrarVendedor && (
                       <TableHead className="font-semibold text-stone-700 whitespace-nowrap">Vendedor</TableHead>
                     )}
+                    {mostrarPunto && (
+                      <TableHead className="font-semibold text-stone-700 whitespace-nowrap">Punto</TableHead>
+                    )}
                     <TableHead className="font-semibold text-stone-700 whitespace-nowrap">Almacen</TableHead>
                     <TableHead className="font-semibold text-stone-700 text-right whitespace-nowrap">
                       <div>Total</div>
@@ -1137,7 +1191,7 @@ export default function HistorialVentasPage() {
                 <TableBody>
                   {ventasFiltradas.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={mostrarVendedor ? 12 : 11} className="text-center text-muted-foreground py-10">
+                      <TableCell colSpan={11 + (mostrarVendedor ? 1 : 0) + (mostrarPunto ? 1 : 0)} className="text-center text-muted-foreground py-10">
                         No hay ventas para mostrar
                       </TableCell>
                     </TableRow>
@@ -1163,6 +1217,11 @@ export default function HistorialVentasPage() {
                         {mostrarVendedor && (
                           <TableCell className="text-muted-foreground whitespace-nowrap">
                             {venta.vendedor_id != null ? vendedorNombre.get(venta.vendedor_id) || '—' : '—'}
+                          </TableCell>
+                        )}
+                        {mostrarPunto && (
+                          <TableCell className="text-muted-foreground whitespace-nowrap">
+                            {venta.punto_facturacion_id != null ? puntoNombre.get(venta.punto_facturacion_id) || '—' : '—'}
                           </TableCell>
                         )}
                         <TableCell className="text-muted-foreground whitespace-nowrap">{venta.almacen_nombre || '-'}</TableCell>
