@@ -571,11 +571,40 @@ export default function NuevaVentaPage() {
   }, [clienteId, puedeListas])
 
   // Precio de venta efectivo de un producto: precio de la lista del cliente si
-  // aplica, o el precio del maestro.
+  // aplica (individual > subcategoría > categoría > línea > % general), o el
+  // precio del maestro.
   const precioDeVenta = React.useCallback(
-    (p: Producto) => calcularPrecioLista(p.precio_venta_sugerido || 0, listaAplicada, p.id ?? -1),
+    (p: Producto) => calcularPrecioLista(p.precio_venta_sugerido || 0, listaAplicada, p),
     [listaAplicada]
   )
+
+  // Al cambiar de cliente (y por tanto de lista) se RE-PRECIAN las líneas ya
+  // agregadas con el precio que le corresponde al nuevo cliente. Las líneas de
+  // Venta Rápida (sin producto) conservan su precio manual.
+  const listaAplicadaId = listaAplicada?.lista.id ?? null
+  React.useEffect(() => {
+    setLineas((prev) => {
+      if (prev.length === 0) return prev
+      let cambio = false
+      const next = prev.map((l) => {
+        if (l.producto_id == null) return l
+        const prod = productos.find((p) => p.id === l.producto_id)
+        if (!prod) return l
+        const precio = calcularPrecioLista(prod.precio_venta_sugerido || 0, listaAplicada, prod)
+        if (precio === l.precio_unitario) return l
+        cambio = true
+        return {
+          ...l,
+          precio_unitario: precio,
+          subtotal: +(precio * l.cantidad).toFixed(2),
+          utilidad_linea: calculateUtilidadLinea(l.cantidad, precio, l.costo_promedio),
+        }
+      })
+      return cambio ? next : prev
+    })
+    // Solo cuando cambia la lista aplicada (no en cada edición de líneas).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listaAplicadaId])
 
   async function addProducto(producto: Producto) {
     const existing = lineas.findIndex(l => l.producto_id === producto.id)

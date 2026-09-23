@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { Tags, Plus, Trash2, Pencil, Loader2, Search, Percent, ListChecks } from "lucide-react"
+import { Tags, Plus, Trash2, Pencil, Loader2, Search, Percent, ListChecks, Layers } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -22,10 +23,15 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency } from "@/lib/utils/format"
-import { getProductos, type Producto } from "@/lib/services/catalogos"
+import {
+  getProductos, getCategorias, getSubcategorias, getLineasProducto,
+  type Producto, type Categoria, type Subcategoria, type LineaProducto,
+} from "@/lib/services/catalogos"
 import {
   getListasPrecios, crearListaPrecio, actualizarListaPrecio, eliminarListaPrecio,
-  getDetalleLista, setPrecioProducto, type ListaPrecio, type TipoLista,
+  getDetalleLista, setPrecioProducto, getReglasLista, setReglaLista,
+  REGLAS_FEATURE_PENDING,
+  type ListaPrecio, type TipoLista, type DimensionRegla,
 } from "@/lib/services/listas-precios"
 
 export default function ListasPreciosPage() {
@@ -50,6 +56,52 @@ export default function ListasPreciosPage() {
   const [cargandoPrecios, setCargandoPrecios] = React.useState(false)
 
   const [borrar, setBorrar] = React.useState<ListaPrecio | null>(null)
+
+  // Editor de reglas por categoría / subcategoría / línea (officemart-005)
+  const [reglasOpen, setReglasOpen] = React.useState(false)
+  const [reglasLista, setReglasLista] = React.useState<ListaPrecio | null>(null)
+  const [reglasPendiente, setReglasPendiente] = React.useState(false)
+  const [cargandoReglas, setCargandoReglas] = React.useState(false)
+  const [categorias, setCategorias] = React.useState<Categoria[]>([])
+  const [subcategorias, setSubcategorias] = React.useState<Subcategoria[]>([])
+  const [lineasProd, setLineasProd] = React.useState<LineaProducto[]>([])
+  // Clave "dimension:id" -> porcentaje como texto ("" = sin regla).
+  const [reglas, setReglas] = React.useState<Record<string, string>>({})
+
+  async function abrirReglas(l: ListaPrecio) {
+    setReglasLista(l)
+    setReglasOpen(true)
+    setCargandoReglas(true)
+    const [rRes, cRes, sRes, lRes] = await Promise.all([
+      getReglasLista(l.id),
+      getCategorias(),
+      getSubcategorias(),
+      getLineasProducto({ soloActivas: true }),
+    ])
+    setReglasPendiente(rRes.pendiente)
+    if (rRes.error) toast({ title: "Error", description: rRes.error, variant: "destructive" })
+    setCategorias(cRes.data || [])
+    setSubcategorias(sRes.data || [])
+    setLineasProd(lRes.data || [])
+    const map: Record<string, string> = {}
+    for (const r of rRes.data) map[`${r.dimension}:${r.ref_id}`] = String(r.porcentaje)
+    setReglas(map)
+    setCargandoReglas(false)
+  }
+
+  async function guardarRegla(dimension: DimensionRegla, refId: number, valor: string) {
+    if (!reglasLista) return
+    const key = `${dimension}:${refId}`
+    setReglas((prev) => ({ ...prev, [key]: valor }))
+    const num = valor.trim() === "" ? null : Number(valor)
+    const res = await setReglaLista(reglasLista.id, dimension, refId, num != null && Number.isNaN(num) ? null : num)
+    if (res.error) toast({ title: "Error", description: res.error, variant: "destructive" })
+  }
+
+  const categoriaNombre = React.useMemo(
+    () => new Map(categorias.map((c) => [c.id, c.nombre])),
+    [categorias]
+  )
 
   const cargar = React.useCallback(async () => {
     setLoading(true)
@@ -134,8 +186,8 @@ export default function ListasPreciosPage() {
             <Tags className="h-6 w-6 text-primary" /> Listas de Precios
           </h1>
           <p className="text-sm text-muted-foreground">
-            Crea listas por porcentaje (aplican a todo el catálogo) o individuales (precio por producto).
-            Luego asígnalas a tus clientes.
+            Crea listas por porcentaje (aplican a todo el catálogo) o individuales (precio por producto),
+            con reglas por categoría, subcategoría o línea. Luego asígnalas a tus clientes.
           </p>
         </div>
         <Button onClick={abrirNueva} size="sm"><Plus className="h-4 w-4 mr-1" /> Nueva lista</Button>
@@ -183,6 +235,9 @@ export default function ListasPreciosPage() {
                               <ListChecks className="h-4 w-4" />
                             </Button>
                           )}
+                          <Button size="sm" variant="ghost" className="h-8 gap-1" onClick={() => abrirReglas(l)} title="Reglas por categoría / línea">
+                            <Layers className="h-4 w-4" />
+                          </Button>
                           <Button size="sm" variant="ghost" className="h-8" onClick={() => abrirEditar(l)} title="Editar">
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -294,6 +349,89 @@ export default function ListasPreciosPage() {
           )}
           <DialogFooter>
             <Button onClick={() => setPreciosOpen(false)}>Listo</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reglas por categoría / subcategoría / línea (officemart-005) */}
+      <Dialog open={reglasOpen} onOpenChange={setReglasOpen}>
+        <DialogContent className="max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Reglas · {reglasLista?.nombre}</DialogTitle>
+            <DialogDescription>
+              Porcentaje de DESCUENTO por categoría, subcategoría o línea. Vacío = sin regla. Al vender se aplica la
+              primera que corresponda: precio del producto (listas individuales) → subcategoría → categoría → línea →{" "}
+              {reglasLista?.tipo === "porcentaje" ? "porcentaje general de la lista" : "precio del maestro"}.
+            </DialogDescription>
+          </DialogHeader>
+          {reglasPendiente && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{REGLAS_FEATURE_PENDING}</div>
+          )}
+          {cargandoReglas ? (
+            <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-stone-400" /></div>
+          ) : (
+            <Tabs defaultValue="categoria">
+              <TabsList>
+                <TabsTrigger value="categoria">Categorías ({categorias.length})</TabsTrigger>
+                <TabsTrigger value="subcategoria">Subcategorías ({subcategorias.length})</TabsTrigger>
+                <TabsTrigger value="linea">Líneas ({lineasProd.length})</TabsTrigger>
+              </TabsList>
+              {(
+                [
+                  { dim: "categoria" as DimensionRegla, filas: categorias.map((c) => ({ id: c.id!, nombre: c.nombre, extra: "" })) },
+                  {
+                    dim: "subcategoria" as DimensionRegla,
+                    filas: subcategorias.map((s) => ({ id: s.id!, nombre: s.nombre, extra: categoriaNombre.get(s.categoria_id) ?? "" })),
+                  },
+                  { dim: "linea" as DimensionRegla, filas: lineasProd.map((l) => ({ id: l.id!, nombre: l.nombre, extra: "" })) },
+                ] as const
+              ).map(({ dim, filas }) => (
+                <TabsContent key={dim} value={dim}>
+                  {filas.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">
+                      {dim === "linea" ? "No hay líneas de producto (créalas en Productos)." : "No hay registros."}
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto border rounded-lg">
+                      <Table containerClassName="max-h-[50vh] overflow-y-auto">
+                        <TableHeader sticky>
+                          <TableRow className="bg-stone-50">
+                            <TableHead className="font-semibold">Nombre</TableHead>
+                            <TableHead className="font-semibold text-right w-40">Descuento (%)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filas.map((f) => (
+                            <TableRow key={f.id}>
+                              <TableCell>
+                                <p className="font-medium text-sm">{f.nombre}</p>
+                                {f.extra && <p className="text-xs text-muted-foreground">{f.extra}</p>}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  className="h-8 w-32 text-right"
+                                  placeholder="—"
+                                  disabled={reglasPendiente}
+                                  value={reglas[`${dim}:${f.id}`] ?? ""}
+                                  onChange={(e) => setReglas((prev) => ({ ...prev, [`${dim}:${f.id}`]: e.target.value }))}
+                                  onBlur={(e) => guardarRegla(dim, f.id, e.target.value)}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </TabsContent>
+              ))}
+            </Tabs>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setReglasOpen(false)}>Listo</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

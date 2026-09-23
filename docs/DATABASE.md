@@ -514,6 +514,13 @@ Nullable. `crearVenta({punto_facturacion})` usa la serie interna del punto (`sig
 
 ---
 
+## Officemart — reglas de precio por categoría/línea (script officemart-005)
+
+### `listas_precios_reglas`
+`id, razon_social_id, lista_id → listas_precios (CASCADE), categoria_id | subcategoria_id | linea_id (exactamente uno, CHECK num_nonnulls = 1), porcentaje (descuento), usuario, created_at, updated_at`; índices únicos parciales por dimensión. RLS por tenant. `lib/services/listas-precios.ts`: `getReglasLista` (devuelve `pendiente` si falta la tabla), `setReglaLista`, pura `reglaAplicable` (subcategoría > categoría > línea) y `calcularPrecioLista(base, aplicada, producto)` con precedencia **precio individual > subcategoría > categoría > línea > % general > maestro**. `getListaAplicadaCliente` carga las reglas; Nueva Venta pasa el producto completo y re-precia las líneas al cambiar de cliente.
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

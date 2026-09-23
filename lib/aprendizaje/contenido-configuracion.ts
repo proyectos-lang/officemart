@@ -45,7 +45,8 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
       "En las de porcentaje, el valor siempre baja el precio (ej. 5 = 5% de descuento).",
       "En las individuales, cada producto sin precio definido usa el precio del maestro.",
       "Las listas se asignan a los clientes desde el módulo Clientes. Un cliente sin lista usa el precio normal del maestro de productos.",
-      "En Nueva Venta, al elegir un cliente con lista, el catálogo muestra el precio base tachado y al lado el precio final de la lista; ese precio final es el que entra a la venta.",
+      "En Nueva Venta, al elegir un cliente con lista, el catálogo muestra el precio base tachado y al lado el precio final de la lista; ese precio final es el que entra a la venta. Si cambias de cliente con productos ya agregados, las líneas se vuelven a preciar con la lista del nuevo cliente (las de Venta Rápida conservan su precio manual).",
+      "Reglas por categoría, subcategoría o línea (botón de capas en la fila de la lista): un % de descuento por grupo de productos, en listas de cualquier tipo. Al vender se aplica la primera que corresponda: precio del producto (lista individual) → subcategoría → categoría → línea → porcentaje general de la lista (o precio del maestro en listas individuales).",
       "Este módulo lo habilita el super-admin por empresa; si no lo ves, tu empresa no lo tiene activo.",
     ],
     queNoHace: [
@@ -69,6 +70,14 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
         ],
       },
       {
+        titulo: "Poner un descuento por categoría o línea",
+        pasos: [
+          "En la fila de la lista presiona el ícono de capas (Reglas).",
+          "Elige la pestaña Categorías, Subcategorías o Líneas y escribe el % de descuento en las filas que apliquen (vacío = sin regla).",
+          "Los cambios se guardan al salir de cada casilla. Una regla de subcategoría gana a la de su categoría, y ambas a la de línea.",
+        ],
+      },
+      {
         titulo: "Asignar la lista a un cliente",
         pasos: [
           "Abre Configuración → Clientes y edita el cliente.",
@@ -84,7 +93,7 @@ export const TUTORIALES_CONFIGURACION: TutorialModulo[] = [
           "Es una función que el super-admin habilita por empresa. Si no aparece en Configuración, tu empresa aún no lo tiene activo.",
       },
     ],
-    keywords: ["lista de precios", "precio por cliente", "mayorista", "descuento", "recargo", "porcentaje", "precio especial", "tarifa"],
+    keywords: ["lista de precios", "precio por cliente", "mayorista", "descuento", "recargo", "porcentaje", "precio especial", "tarifa", "precio por categoria", "precio por linea", "reglas", "subcategoria"],
   },
   {
     modulo: "Usuarios y Permisos",
