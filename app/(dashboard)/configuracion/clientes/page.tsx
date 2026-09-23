@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Users, Pencil, Trash2, Loader2, Cake, RotateCcw, Ban, ClipboardList } from "lucide-react"
+import { Plus, Users, Pencil, Trash2, Loader2, Cake, RotateCcw, Ban, ClipboardList, Handshake } from "lucide-react"
 import Link from "next/link"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -62,6 +62,7 @@ export default function ClientesConfigPage() {
   // Modulo "Vendedores y Zonas" (script officemart-002): zona y vendedor por cliente.
   const mostrarVendedores = hasModulo("Vendedores y Zonas")
   const verEstadoCuenta = hasModulo("Estado de Cuenta")
+  const verCrm = hasModulo("CRM Pipeline")
   const [zonas, setZonas] = useState<Zona[]>([])
   const [vendedores, setVendedores] = useState<Vendedor[]>([])
 
@@ -331,6 +332,11 @@ export default function ClientesConfigPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-1 ml-2">
+                          {verCrm && cliente.id != null && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="CRM: oportunidades del cliente">
+                              <Link href={`/crm/pipeline?clienteId=${cliente.id}`}><Handshake className="h-4 w-4" /></Link>
+                            </Button>
+                          )}
                           {verEstadoCuenta && cliente.id != null && (
                             <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="Estado de cuenta">
                               <Link href={`/ventas/estado-cuenta?clienteId=${cliente.id}`}><ClipboardList className="h-4 w-4" /></Link>
@@ -423,7 +429,12 @@ export default function ClientesConfigPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            {verEstadoCuenta && cliente.id != null && (
+                            {verCrm && cliente.id != null && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="CRM: oportunidades del cliente">
+                              <Link href={`/crm/pipeline?clienteId=${cliente.id}`}><Handshake className="h-4 w-4" /></Link>
+                            </Button>
+                          )}
+                          {verEstadoCuenta && cliente.id != null && (
                               <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="Estado de cuenta">
                                 <Link href={`/ventas/estado-cuenta?clienteId=${cliente.id}`}><ClipboardList className="h-4 w-4" /></Link>
                               </Button>

@@ -625,6 +625,20 @@ Extracto `cuenta_id, periodo_desde, periodo_hasta, archivo_nombre, saldo_inicial
 
 ---
 
+## Officemart — CRM (script officemart-016)
+
+Categoría nueva "CRM" en el sidebar (`Categoria`/`CATEGORIAS_ORDEN`). Requiere officemart-002 (`vendedores`).
+
+- **`crm_etapas`**: columnas del pipeline (`nombre` UNIQUE por empresa, `orden`, `probabilidad` 0–100, `color`, `activo`). `getEtapas()` siembra Prospecto 10 / Contacto 25 / Propuesta 50 / Negociación 75 / Cierre 90 si la empresa no tiene ninguna.
+- **`crm_contactos`**: personas (`cliente_id` FK nullable = prospecto suelto, `nombre`, `cargo`, `telefono`, `correo`, `cumpleanos` date, `notas`, `activo`). Se archivan (activo=false), no se borran.
+- **`crm_oportunidades`**: `titulo`, `cliente_id` FK | `prospecto_nombre`, `contacto_id` FK, `vendedor_id` FK, `etapa_id` FK NOT NULL, `valor_estimado`, `fecha_cierre_esperada`, `origen`, `estado` Abierta|Ganada|Perdida, `motivo_perdida`, `cotizacion_id`/`venta_id` (sin FK: 006 opcional), `notas`, `cerrada_at`, `updated_at` (se toca al mover etapa o registrar actividad → "días sin movimiento").
+- **`crm_actividades`**: `oportunidad_id`/`cliente_id`/`contacto_id`/`vendedor_id` FKs nullable, `tipo` Llamada|Visita|Reunion|Correo|Tarea|Nota, `asunto`, `descripcion`, `fecha` timestamptz (HN-as-UTC), `resultado`, `completada`, `completada_at`. Índice `(razon_social_id, completada, fecha)` para la agenda y el badge.
+- RLS `<tabla>_tenant` en las 4. Módulos "CRM Pipeline", "CRM Agenda", "CRM Reportes".
+
+`lib/services/crm.ts`: puras `resumirPipeline`, `tasaCierre`, `resumirPorClave`, `contarPor`, `clasificarActividades`, `proximosCumpleanos` (clientes.fecha_nacimiento + contactos.cumpleanos, salto de año y 29-feb), `construirReporteGestion`, `hondurasLocalAIso`/`isoAHondurasLocal`; I/O CRUD + `moverEtapa`, `cerrarOportunidad`, `reabrirOportunidad`, `vincularCotizacionOportunidad` (la llama `ventas/cotizaciones/nueva` con `?clienteId=&oportunidadId=`), `getAgenda`, `contarAgendaPendiente` (badge), `getReporteGestion`. Páginas `crm/pipeline` (kanban HTML5 drag & drop + Lista + Contactos + Etapas admin; `?clienteId=` desde Clientes), `crm/agenda`, `crm/reportes`.
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

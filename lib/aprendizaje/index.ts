@@ -7,6 +7,7 @@ import { TUTORIALES_COMPRAS } from "./contenido-compras"
 import { TUTORIALES_INVENTARIO } from "./contenido-inventario"
 import { TUTORIALES_PRODUCCION } from "./contenido-produccion"
 import { TUTORIALES_FINANZAS } from "./contenido-finanzas"
+import { TUTORIALES_CRM } from "./contenido-crm"
 import { TUTORIALES_CONFIGURACION } from "./contenido-configuracion"
 
 export type { TutorialModulo, OperacionPaso, PreguntaFrecuente } from "./types"
@@ -20,6 +21,7 @@ export const TUTORIALES: TutorialModulo[] = [
   ...TUTORIALES_INVENTARIO,
   ...TUTORIALES_PRODUCCION,
   ...TUTORIALES_FINANZAS,
+  ...TUTORIALES_CRM,
   ...TUTORIALES_CONFIGURACION,
 ]
 

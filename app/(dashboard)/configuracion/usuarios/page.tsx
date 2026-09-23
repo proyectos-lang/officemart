@@ -620,6 +620,7 @@ export default function UsuariosPage() {
                       Inventario: [],
                       Produccion: [],
                       Finanzas: [],
+                      CRM: [],
                       Configuracion: [],
                     }
                     for (const m of MODULOS) {

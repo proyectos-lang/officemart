@@ -48,6 +48,10 @@ function CotizacionEditor() {
   const router = useRouter()
   const params = useSearchParams()
   const editId = params.get("id") ? Number(params.get("id")) : null
+  // Desde el CRM: cliente/prospecto preseleccionado y oportunidad a la que ligar la cotización.
+  const clienteParam = params.get("clienteId") ? Number(params.get("clienteId")) : null
+  const prospectoParam = params.get("prospecto") || ""
+  const oportunidadParam = params.get("oportunidadId") ? Number(params.get("oportunidadId")) : null
   const { toast } = useToast()
   const { user, hasModulo } = useAuth()
   const { ready, razonSocialId } = useTenant()
@@ -133,8 +137,17 @@ function CotizacionEditor() {
         precio_unitario: l.precio_unitario,
         descuento_linea: l.descuento_linea,
       })))
-    } else if (vendUsuario?.id != null) {
-      setVendedorId(String(vendUsuario.id))
+    } else {
+      if (vendUsuario?.id != null) setVendedorId(String(vendUsuario.id))
+      if (clienteParam != null) {
+        const c = (cRes.data || []).find((x) => x.id === clienteParam)
+        if (c) {
+          setClienteId(c.id ?? null)
+          setClienteNombre(c.nombre)
+        }
+      } else if (prospectoParam) {
+        setClienteNombre(prospectoParam)
+      }
     }
     setLoading(false)
   }
@@ -222,6 +235,13 @@ function CotizacionEditor() {
       return
     }
     toast({ title: editId != null ? "Cotización actualizada" : "Cotización creada", description: res.data.numero })
+    if (editId == null && oportunidadParam != null) {
+      // Liga la cotización a la oportunidad del CRM (best-effort).
+      const { vincularCotizacionOportunidad } = await import("@/lib/services/crm")
+      await vincularCotizacionOportunidad(oportunidadParam, res.data.id)
+      router.push("/crm/pipeline")
+      return
+    }
     router.push("/ventas/cotizaciones")
   }
 

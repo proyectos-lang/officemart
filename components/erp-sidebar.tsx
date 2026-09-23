@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/lib/contexts/auth-context"
-import { Home, ChevronRight, LayoutDashboard, ShoppingCart, FileText, ClipboardList, CreditCard, Settings, GraduationCap, Sparkles, Factory } from "lucide-react"
+import { Home, ChevronRight, LayoutDashboard, ShoppingCart, FileText, ClipboardList, CreditCard, Settings, GraduationCap, Sparkles, Factory, Handshake } from "lucide-react"
 
 import {
   Sidebar,
@@ -30,6 +30,7 @@ import { MODULOS, CATEGORIAS_ORDEN, type Categoria, type ModuloGranular } from "
 import { usePedidosPendientes } from "@/lib/hooks/use-pedidos-pendientes"
 import { useCotizacionesPorVencer } from "@/lib/hooks/use-cotizaciones-por-vencer"
 import { useBackordersPendientes } from "@/lib/hooks/use-backorders-pendientes"
+import { useCrmAgendaPendiente } from "@/lib/hooks/use-crm-agenda-pendiente"
 import { useActualizaciones } from "@/lib/hooks/use-actualizaciones"
 
 // Iconos por categoria (el contenedor del collapsible)
@@ -40,6 +41,7 @@ const CATEGORIA_ICON: Record<Categoria, React.ComponentType<{ className?: string
   Inventario: ClipboardList,
   Produccion: Factory,
   Finanzas: CreditCard,
+  CRM: Handshake,
   Configuracion: Settings,
 }
 
@@ -56,6 +58,7 @@ export function ERPSidebar() {
   const pedidosPendientes = usePedidosPendientes()
   const cotizacionesPorVencer = useCotizacionesPorVencer()
   const backordersPendientes = useBackordersPendientes()
+  const crmAgendaPendiente = useCrmAgendaPendiente()
   const { hayNueva: hayActualizacion } = useActualizaciones()
 
   // Agrupa los modulos granulares por categoria, filtrando por permiso
@@ -169,6 +172,14 @@ export function ERPSidebar() {
                                       title="Órdenes con pendiente de entrega"
                                     >
                                       {backordersPendientes}
+                                    </span>
+                                  )}
+                                  {m.nombre === "CRM Agenda" && crmAgendaPendiente > 0 && (
+                                    <span
+                                      className="ml-auto rounded-full bg-red-500 text-white text-[10px] font-semibold px-1.5 py-0.5 leading-none"
+                                      title="Actividades vencidas o de hoy"
+                                    >
+                                      {crmAgendaPendiente}
                                     </span>
                                   )}
                                   {m.nombre === "Cotizaciones" && cotizacionesPorVencer > 0 && (

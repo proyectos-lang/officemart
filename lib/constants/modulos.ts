@@ -53,6 +53,9 @@ import {
   PackageMinus,
   RefreshCw,
   Handshake,
+  Kanban,
+  CalendarCheck,
+  Target,
   type LucideIcon,
 } from "lucide-react"
 
@@ -63,6 +66,7 @@ export type Categoria =
   | "Inventario"
   | "Produccion"
   | "Finanzas"
+  | "CRM"
   | "Configuracion"
 
 export interface ModuloGranular {
@@ -84,13 +88,13 @@ export interface ModuloGranular {
 }
 
 /**
- * 61 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 64 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
  * Facturación", "Cotizaciones", "Estado de Cuenta", "Reportes de Ventas",
  * "Trazabilidad", "Backorder", "Reportes de Compras", "Reposición",
  * "Comisiones", "Consignación", "Toma Física", "Conciliación Bancaria",
- * "Balance" y TODOS los de la
+ * "Balance", "CRM Pipeline", "CRM Agenda", "CRM Reportes" y TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -215,6 +219,11 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // NUEVO (no-base, officemart-015): balance operativo (activos vs pasivos de
   // gestión, sin partida doble).
   { nombre: "Balance", href: "/finanzas/balance", categoria: "Finanzas", icon: Scale },
+
+  // ---- CRM (NUEVO, no-base, officemart-016) ----
+  { nombre: "CRM Pipeline", href: "/crm/pipeline", categoria: "CRM", icon: Kanban },
+  { nombre: "CRM Agenda", href: "/crm/agenda", categoria: "CRM", icon: CalendarCheck },
+  { nombre: "CRM Reportes", href: "/crm/reportes", categoria: "CRM", icon: Target },
   {
     nombre: "Consolidacion Bancaria",
     href: "/finanzas/consolidacion",
@@ -312,6 +321,7 @@ export const CATEGORIAS_ORDEN: ReadonlyArray<Categoria> = [
   "Inventario",
   "Produccion",
   "Finanzas",
+  "CRM",
   "Configuracion",
 ]
 
