@@ -116,93 +116,67 @@ ALTER TABLE officemart.devoluciones_encabezado ADD COLUMN IF NOT EXISTS anulada_
 ALTER TABLE officemart.devoluciones_encabezado ADD COLUMN IF NOT EXISTS motivo_anulacion      text;
 
 -- -------------------------------------------------------------------------
--- 5. Vistas y RPC que agregan ventas: excluir anuladas
+-- 5. Vistas y RPC que agregan ventas
 -- -------------------------------------------------------------------------
--- Misma definición del script 013 (mismas columnas) + filtro de vigentes.
-CREATE OR REPLACE VIEW officemart.vista_cierre_diario AS
-WITH ventas_dia AS (
-  SELECT
-    v.razon_social_id,
-    (v.fecha_venta AT TIME ZONE 'UTC')::date AS fecha,
-    COUNT(*)::int                            AS cantidad_tickets,
-    COALESCE(SUM(v.total_venta), 0)          AS total_ventas
-  FROM officemart.ventas_encabezado v
-  WHERE v.anulada_at IS NULL
-  GROUP BY v.razon_social_id, (v.fecha_venta AT TIME ZONE 'UTC')::date
-),
-pagos_dia AS (
-  SELECT
-    p.razon_social_id,
-    (v.fecha_venta AT TIME ZONE 'UTC')::date AS fecha,
-    COALESCE(SUM(CASE WHEN p.metodo_pago = 'Efectivo' THEN p.monto_bruto ELSE 0 END), 0) AS efectivo_bruto,
-    COALESCE(SUM(CASE WHEN p.metodo_pago IN ('Banco','Link_Pago') THEN p.monto_bruto ELSE 0 END), 0) AS banco_bruto,
-    COALESCE(SUM(CASE WHEN p.metodo_pago IN ('Banco','Link_Pago') THEN p.monto_neto  ELSE 0 END), 0) AS banco_neto,
-    COALESCE(SUM(CASE WHEN p.metodo_pago = 'Credito' THEN p.monto_bruto ELSE 0 END), 0) AS credito_total,
-    COALESCE(SUM(p.monto_bruto - p.monto_neto), 0) AS comisiones_total
-  FROM officemart.ventas_pagos_detalle p
-  JOIN officemart.ventas_encabezado v ON v.id = p.venta_id
-  WHERE v.anulada_at IS NULL
-  GROUP BY p.razon_social_id, (v.fecha_venta AT TIME ZONE 'UTC')::date
-)
-SELECT
-  vd.razon_social_id,
-  vd.fecha,
-  vd.cantidad_tickets,
-  vd.total_ventas,
-  COALESCE(pd.efectivo_bruto, 0)   AS ingresos_efectivo,
-  COALESCE(pd.banco_bruto, 0)      AS ingresos_banco_bruto,
-  COALESCE(pd.banco_neto, 0)       AS ingresos_banco_neto,
-  COALESCE(pd.credito_total, 0)    AS credito_total,
-  COALESCE(pd.comisiones_total, 0) AS comisiones_total
-FROM ventas_dia vd
-LEFT JOIN pagos_dia pd
-  ON pd.razon_social_id = vd.razon_social_id
- AND pd.fecha           = vd.fecha;
+-- Las vistas `vista_cierre_diario` y `vista_estado_resultados_mensual` NO se
+-- tocan: la clonada desde `public` tiene más columnas que el script 013 del
+-- repo y `CREATE OR REPLACE VIEW` no puede quitar columnas (error 42P16).
+-- Desde este script la app calcula el cierre diario y el P&L directamente
+-- desde las tablas (con el filtro `anulada_at IS NULL`) y ya no lee esas
+-- vistas, que quedan solo por compatibilidad.
 
--- Resumen del portal de plataforma (script 037), sin ventas anuladas.
-CREATE OR REPLACE FUNCTION officemart.plataforma_resumen_empresas()
-RETURNS TABLE (
-  id                bigint,
-  nombre            text,
-  comercial         text,
-  rtn               text,
-  usuarios          bigint,
-  usuarios_activos  bigint,
-  productos         bigint,
-  ventas            bigint,
-  ingreso_mes       numeric,
-  ingreso_total     numeric,
-  ultima_venta      timestamptz,
-  valor_inventario  numeric,
-  creada            timestamptz,
-  ultima_conexion   timestamptz
-)
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path = officemart
-AS $$
-  SELECT
-    rs.id,
-    rs.nombre_empresa,
-    rs.nombre_comercial,
-    rs.documento,
-    (SELECT count(*) FROM officemart.usuarios u WHERE u.razon_social_id = rs.id),
-    (SELECT count(*) FROM officemart.usuarios u WHERE u.razon_social_id = rs.id AND u.activo IS NOT FALSE),
-    (SELECT count(*) FROM officemart.productos p WHERE p.razon_social_id = rs.id),
-    (SELECT count(*) FROM officemart.ventas_encabezado v WHERE v.razon_social_id = rs.id AND v.anulada_at IS NULL),
-    (SELECT COALESCE(sum(v.total_venta), 0) FROM officemart.ventas_encabezado v
-       WHERE v.razon_social_id = rs.id AND v.anulada_at IS NULL AND v.fecha_venta >= date_trunc('month', now())),
-    (SELECT COALESCE(sum(v.total_venta), 0) FROM officemart.ventas_encabezado v
-       WHERE v.razon_social_id = rs.id AND v.anulada_at IS NULL),
-    (SELECT max(v.fecha_venta) FROM officemart.ventas_encabezado v WHERE v.razon_social_id = rs.id AND v.anulada_at IS NULL),
-    (SELECT COALESCE(sum(p.stock_total * p.costo_promedio), 0) FROM officemart.productos p WHERE p.razon_social_id = rs.id),
-    (SELECT min(u.created_at) FROM officemart.usuarios u WHERE u.razon_social_id = rs.id),
-    (SELECT max(au.last_sign_in_at) FROM officemart.usuarios u JOIN auth.users au ON au.id = u.id WHERE u.razon_social_id = rs.id)
-  FROM officemart.razon_social rs
-  ORDER BY rs.id;
-$$;
-REVOKE ALL ON FUNCTION officemart.plataforma_resumen_empresas() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION officemart.plataforma_resumen_empresas() TO service_role;
+-- Resumen del portal de plataforma (script 037), sin ventas anuladas. Se
+-- intenta reemplazar; si la firma clonada difiere, se avisa y no se aborta.
+DO $$
+BEGIN
+  EXECUTE $fn$
+  CREATE OR REPLACE FUNCTION officemart.plataforma_resumen_empresas()
+  RETURNS TABLE (
+    id                bigint,
+    nombre            text,
+    comercial         text,
+    rtn               text,
+    usuarios          bigint,
+    usuarios_activos  bigint,
+    productos         bigint,
+    ventas            bigint,
+    ingreso_mes       numeric,
+    ingreso_total     numeric,
+    ultima_venta      timestamptz,
+    valor_inventario  numeric,
+    creada            timestamptz,
+    ultima_conexion   timestamptz
+  )
+  LANGUAGE sql
+  SECURITY DEFINER
+  SET search_path = officemart
+  AS $body$
+    SELECT
+      rs.id,
+      rs.nombre_empresa,
+      rs.nombre_comercial,
+      rs.documento,
+      (SELECT count(*) FROM officemart.usuarios u WHERE u.razon_social_id = rs.id),
+      (SELECT count(*) FROM officemart.usuarios u WHERE u.razon_social_id = rs.id AND u.activo IS NOT FALSE),
+      (SELECT count(*) FROM officemart.productos p WHERE p.razon_social_id = rs.id),
+      (SELECT count(*) FROM officemart.ventas_encabezado v WHERE v.razon_social_id = rs.id AND v.anulada_at IS NULL),
+      (SELECT COALESCE(sum(v.total_venta), 0) FROM officemart.ventas_encabezado v
+         WHERE v.razon_social_id = rs.id AND v.anulada_at IS NULL AND v.fecha_venta >= date_trunc('month', now())),
+      (SELECT COALESCE(sum(v.total_venta), 0) FROM officemart.ventas_encabezado v
+         WHERE v.razon_social_id = rs.id AND v.anulada_at IS NULL),
+      (SELECT max(v.fecha_venta) FROM officemart.ventas_encabezado v WHERE v.razon_social_id = rs.id AND v.anulada_at IS NULL),
+      (SELECT COALESCE(sum(p.stock_total * p.costo_promedio), 0) FROM officemart.productos p WHERE p.razon_social_id = rs.id),
+      (SELECT min(u.created_at) FROM officemart.usuarios u WHERE u.razon_social_id = rs.id),
+      (SELECT max(au.last_sign_in_at) FROM officemart.usuarios u JOIN auth.users au ON au.id = u.id WHERE u.razon_social_id = rs.id)
+    FROM officemart.razon_social rs
+    ORDER BY rs.id;
+  $body$
+  $fn$;
+  REVOKE ALL ON FUNCTION officemart.plataforma_resumen_empresas() FROM PUBLIC;
+  GRANT EXECUTE ON FUNCTION officemart.plataforma_resumen_empresas() TO service_role;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'plataforma_resumen_empresas no se reemplazó (%): el portal seguirá contando ventas anuladas.', SQLERRM;
+END $$;
 
 -- -------------------------------------------------------------------------
 -- 6. Módulos (nacen deshabilitados; se habilitan por empresa desde /plataforma)

@@ -329,39 +329,13 @@ export async function getCierreDiario(fechaISO: string): Promise<{
   const { start, end } = rangoDia(fechaISO)
   let featurePending = false
 
-  // ---- Resumen: intentamos primero la vista, fallback a calculo manual ---
-  let resumen: CierreResumen = { ...empty.resumen }
-  const vista = await supabase
-    .from("vista_cierre_diario")
-    .select("*")
-    .eq("razon_social_id", tenantId)
-    .eq("fecha", fechaISO)
-    .maybeSingle()
-
-  if (vista.error && !isMissingRelation(vista.error)) {
-    console.warn("[cierre-diario] error en vista:", vista.error.message)
-  }
-
-  if (vista.data) {
-    resumen = {
-      fecha: fechaISO,
-      cantidad_tickets: Number(vista.data.cantidad_tickets || 0),
-      total_ventas: Number(vista.data.total_ventas || 0),
-      ingresos_efectivo: Number(vista.data.ingresos_efectivo || 0),
-      ingresos_banco_bruto: Number(vista.data.ingresos_banco_bruto || 0),
-      ingresos_banco_neto: Number(vista.data.ingresos_banco_neto || 0),
-      credito_total: Number(vista.data.credito_total || 0),
-      comisiones_total: Number(vista.data.comisiones_total || 0),
-      // Estos los rellenamos en bloques posteriores. La vista no los expone.
-      egresos_gastos_efectivo: 0,
-      egresos_gastos_banco: 0,
-      total_egresos_caja: 0,
-      ingresos_efectivo_manual: 0,
-    }
-  } else {
-    // La vista es OPCIONAL (script 013). Si no existe, NO encendemos el
-    // banner de migracion pendiente: el bloque siguiente recalcula todo
-    // a mano leyendo directo de ventas_encabezado y ventas_pagos_detalle.
+  // ---- Resumen: SIEMPRE calculado desde las tablas ------------------------
+  // Antes se leia primero `vista_cierre_diario`; desde officemart-003 no se
+  // usa: la vista clonada no excluye las ventas ANULADAS (y sus columnas no
+  // coinciden con las que este resumen necesita). El calculo directo lee
+  // ventas_encabezado (solo vigentes) y ventas_pagos_detalle.
+  const resumen: CierreResumen = { ...empty.resumen }
+  {
     const { data: ventasData } = await ejecutarVigentes<{ id: number; total_venta: number }[] | null>((filtrar) => {
       let q = supabase
         .from("ventas_encabezado")
