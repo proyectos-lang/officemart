@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import { STORAGE_PREFIX } from '@/lib/supabase/schema'
 
 // Solo imagenes; el bucket "productos" guarda fotos de productos y logos.
 const MIME_PERMITIDOS = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`
+    const fileName = `${STORAGE_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`
 
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)

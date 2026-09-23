@@ -4,6 +4,28 @@ ERP/POS multi-empresa: Next.js 16 (App Router) + Supabase. Español de Honduras
 (Lempiras, RTN, ISV 15 %). Detalles de arquitectura en `README.md` y esquema de
 BD en `docs/DATABASE.md`.
 
+## Officemart (fork de EasyCount)
+
+Este repo es la versión de EasyCount personalizada para **Officemart**.
+
+- **Misma BD, otro esquema**: usa el mismo proyecto de Supabase (mismas
+  variables de entorno) pero TODOS sus datos viven en el esquema `officemart`,
+  no en `public` (que es EasyCount en producción). El esquema se fija en
+  `lib/supabase/schema.ts` (`DB_SCHEMA`) y lo aplican los 3 clientes de
+  `lib/supabase/`. **Nunca crear un cliente de Supabase sin
+  `db: { schema: DB_SCHEMA }`**, ni escribir SQL contra `public.`.
+- **Storage compartido**: los buckets son los de EasyCount; toda ruta de
+  archivo va bajo `STORAGE_PREFIX` (`officemart/`) para no pisar archivos de
+  EasyCount (los IDs de empresa de ambos esquemas empiezan en 1).
+- **Auth compartido**: `auth.users` es común a todos los sistemas del
+  proyecto; un correo ya usado en EasyCount u otro sistema no se puede
+  registrar de nuevo.
+- **Scripts SQL de Officemart**: `scripts/officemart-NNN-*.sql`, siempre
+  calificados con `officemart.` (no usar la numeración 0NN de EasyCount, que
+  sigue llegando desde `upstream`). El 000 clona la estructura de `public`.
+- **Git**: `upstream` = repo de EasyCount (traer mejoras con
+  `git pull upstream main`); nunca hacer push de Officemart a `upstream`.
+
 ## Reglas del proyecto
 
 - **Multi-tenant**: toda query filtra por `razon_social_id`; todo insert lleva

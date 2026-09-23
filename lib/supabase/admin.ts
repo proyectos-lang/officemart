@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js"
+import { DB_SCHEMA } from "./schema"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -21,11 +22,14 @@ export function createAdminClient(): SupabaseClient | null {
   }
 
   return createSupabaseClient(supabaseUrl, serviceRoleKey, {
+    db: { schema: DB_SCHEMA },
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
-  })
+    // La BD no esta tipada: el cast solo alinea el generico de esquema con el
+    // `SupabaseClient` (public) que usan los servicios.
+  }) as unknown as SupabaseClient
 }
 
 export function isAdminClientConfigured(): boolean {

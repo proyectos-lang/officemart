@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { createClient as createServerClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { STORAGE_PREFIX } from "@/lib/supabase/schema"
 
 const LOGO_BUCKET = "logos"
 const ALLOWED_LOGO_EXTS = ["png", "jpg", "jpeg", "webp"] as const
@@ -89,7 +90,7 @@ export async function removeLogoAction(): Promise<{ ok: boolean; error: string |
   }
 
   // Borrar todas las variantes posibles del storage
-  const paths = ALLOWED_LOGO_EXTS.map((ext) => `logo_${ctx.razonSocialId}.${ext}`)
+  const paths = ALLOWED_LOGO_EXTS.map((ext) => `${STORAGE_PREFIX}logo_${ctx.razonSocialId}.${ext}`)
   const { error: removeErr } = await admin.storage.from(LOGO_BUCKET).remove(paths)
   if (removeErr) {
     // No abortamos: podemos aun limpiar la URL

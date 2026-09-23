@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import { STORAGE_PREFIX } from '@/lib/supabase/schema'
 
 /**
  * Descarga una imagen desde una URL externa (server-side, sin CORS) y la sube al
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
     }
 
     const ext = EXT_POR_MIME[contentType] || 'jpg'
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+    const fileName = `${STORAGE_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
 
     const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } })
     const { error: uploadError } = await supabase.storage

@@ -1,5 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr'
 import { processLock, type SupabaseClient } from '@supabase/supabase-js'
+import { DB_SCHEMA } from './schema'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -24,6 +25,7 @@ export function createClient(): SupabaseClient | null {
 
   if (!browserClient) {
     browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+      db: { schema: DB_SCHEMA },
       auth: {
         // Safari / iOS: el Web Locks API (navigator.locks) que Supabase usa por
         // defecto para coordinar el refresh del token entre pestanas es
@@ -32,7 +34,9 @@ export function createClient(): SupabaseClient | null {
         // es singleton por tab, es suficiente y evita ese error.
         lock: processLock,
       },
-    })
+      // La BD no esta tipada: el cast solo alinea el generico de esquema con el
+      // `SupabaseClient` (public) que usan los servicios.
+    }) as unknown as SupabaseClient
   }
 
   return browserClient

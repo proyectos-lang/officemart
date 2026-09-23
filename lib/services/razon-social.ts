@@ -1,4 +1,5 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
+import { STORAGE_PREFIX } from '@/lib/supabase/schema'
 
 export interface RazonSocial {
   id?: number
@@ -243,7 +244,7 @@ export async function uploadLogo(
     const ext = ALLOWED_LOGO_EXTS.includes(nameExt as any) ? nameExt : mimeExt
 
     // Nombre estable por tenant (permite upsert). El cache-buster va en la URL final.
-    const filePath = `logo_${razonSocialId}.${ext}`
+    const filePath = `${STORAGE_PREFIX}logo_${razonSocialId}.${ext}`
 
     const { error: uploadError } = await supabase.storage
       .from(LOGO_BUCKET)

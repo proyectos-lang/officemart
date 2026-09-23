@@ -4,7 +4,22 @@ Estos scripts construyen el esquema de Supabase. Se ejecutan **en orden** en el
 SQL Editor de Supabase. Son en su mayoría idempotentes (`IF NOT EXISTS` /
 `DROP ... IF EXISTS`), pero conviene aplicarlos en secuencia sobre una base nueva.
 
-## Orden de ejecución
+## Officemart
+
+La app de Officemart usa el esquema `officemart` (no `public`). Los scripts
+numerados 0NN de abajo son los de EasyCount y **no se ejecutan** para
+Officemart: su estructura ya viene clonada.
+
+| # | Script | Qué hace |
+|---|---|---|
+| O-000 | `officemart-000-clonar-esquema.sql` | Crea el esquema `officemart` clonando del **catálogo real** de `public`: tipos, secuencias, tablas (columnas, PK/UNIQUE, índices, identity), funciones y vistas, defaults, CHECK, FKs, triggers, RLS + políticas y privilegios (1:1). Reescribe cada `public.<objeto clonado>` a `officemart.` (las funciones de tenant leen `officemart.usuarios`). Omite las tablas de otra app que conviven en `public` (`gestiones`, `aduanas`, `mensajes`…). Siembra `modulos` y `plataforma_admins`. Todo o nada; solo sobre esquema vacío. **Después**: exponer `officemart` en Project Settings → Data API → Exposed schemas |
+| O-001 | `officemart-001-base-comun.sql` | **Base común** de las entregas de Officemart: tabla `auditoria` (bitácora genérica: entidad, acción, motivo, antes/después; RLS solo SELECT/INSERT); tabla `correlativos` + RPC `siguiente_correlativo(serie, prefijo, pad, razon_social_id?)` / `peek_correlativo` (numeración **atómica** por empresa y serie vía UPSERT con lock de fila; sustituye los `COUNT(*)+1` de devoluciones y pedidos; sembrada desde los DEV-/PED- existentes); `ADD COLUMN` nullable en `cuenta_movimientos` (`referencia`, `conciliado_at`, `extracto_linea_id`) y en `transacciones_inventario` (`referencia_tipo`); `CREATE OR REPLACE` de `tg_limpiar_tesoreria_ref` para recalcular la cadena `saldo_resultante` por **(fecha, id)** — desde ahora un movimiento bancario puede llevar fecha pasada (`registrarMovimientoCuenta({fecha})`). Requiere O-000 |
+
+Scripts nuevos de Officemart: `officemart-NNN-*.sql`, con objetos calificados
+`officemart.` Si llega un script 0NN nuevo desde EasyCount que haga falta
+aquí, portarlo como `officemart-NNN` cambiando `public.` por `officemart.`
+
+## Orden de ejecución (EasyCount / `public`)
 
 | # | Script | Qué hace |
 |---|---|---|

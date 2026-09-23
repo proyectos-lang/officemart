@@ -1,6 +1,7 @@
 "use client"
 
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
+import { STORAGE_PREFIX } from "@/lib/supabase/schema"
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from "@/lib/services/tenant-stamp"
 import { registrarMovimientoCaja, getSesionAbierta } from "@/lib/services/caja-chica"
 import { registrarMovimientoCuenta, recalcCadenaSaldoCuenta } from "@/lib/services/cuentas"
@@ -747,7 +748,7 @@ export async function uploadComprobante(file: File): Promise<{ url: string | nul
 
   const fileExt = file.name.split('.').pop()
   const fileName = `${Date.now()}.${fileExt}`
-  const filePath = `comprobantes/${fileName}`
+  const filePath = `${STORAGE_PREFIX}comprobantes/${fileName}`
 
   const { error: uploadError } = await supabase.storage
     .from('gastos')
