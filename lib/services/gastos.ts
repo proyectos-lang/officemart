@@ -411,9 +411,13 @@ export async function deleteGasto(id: number): Promise<{ success: boolean; error
   // saldo despues de borrar los movimientos).
   const { data: movsCuenta } = await supabase
     .from('cuenta_movimientos')
-    .select('cuenta_id')
+    .select('cuenta_id, conciliado_at')
     .eq('ref_tipo', 'gasto')
     .eq('ref_id', id)
+  // Candado (officemart-014): un pago ya conciliado con el banco no se borra.
+  if ((movsCuenta ?? []).some((m: { conciliado_at?: string | null }) => m.conciliado_at)) {
+    return { success: false, error: 'Este gasto tiene un pago conciliado con el extracto bancario; reabre la conciliación antes de borrarlo.' }
+  }
   const cuentasAfectadas = [...new Set((movsCuenta ?? []).map((m) => Number(m.cuenta_id)))]
 
   // Borra el gasto.

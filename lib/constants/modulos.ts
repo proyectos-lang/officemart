@@ -84,12 +84,13 @@ export interface ModuloGranular {
 }
 
 /**
- * 59 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 60 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
  * Facturación", "Cotizaciones", "Estado de Cuenta", "Reportes de Ventas",
  * "Trazabilidad", "Backorder", "Reportes de Compras", "Reposición",
- * "Comisiones", "Consignación", "Toma Física" y TODOS los de la
+ * "Comisiones", "Consignación", "Toma Física", "Conciliación Bancaria" y
+ * TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -208,6 +209,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
     icon: ClipboardCheck,
   },
   { nombre: "Analisis Financiero", href: "/finanzas/analisis", categoria: "Finanzas", icon: LineChart },
+  // NUEVO (no-base, officemart-014): extracto del banco vs libro, pareo,
+  // registro de lo que falta y cierre del período.
+  { nombre: "Conciliación Bancaria", href: "/finanzas/conciliacion", categoria: "Finanzas", icon: Landmark },
   {
     nombre: "Consolidacion Bancaria",
     href: "/finanzas/consolidacion",

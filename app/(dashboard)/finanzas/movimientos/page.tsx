@@ -211,8 +211,14 @@ export default function MovimientosCuentasPage() {
                           {m.tipo}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-stone-600 max-w-[280px] truncate">
-                        {m.concepto || "—"}
+                      <TableCell className="text-sm text-stone-600 max-w-[280px]">
+                        <p className="truncate">{m.concepto || "—"}</p>
+                        {(m.referencia || m.conciliado_at) && (
+                          <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            {m.referencia && <span>ref. {m.referencia}</span>}
+                            {m.conciliado_at && <Badge variant="outline" className="text-[10px] py-0 border-emerald-300 text-emerald-700">Conciliado</Badge>}
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell className={`text-right font-mono ${m.tipo === "Ingreso" ? "text-emerald-700" : "text-red-700"}`}>
                         {m.tipo === "Ingreso" ? "+" : "−"}{formatCurrency(Number(m.monto || 0))}

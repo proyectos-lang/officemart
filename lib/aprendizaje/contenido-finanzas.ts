@@ -445,4 +445,31 @@ export const TUTORIALES_FINANZAS: TutorialModulo[] = [
     ],
     keywords: ["consolidacion", "bancaria", "bancos", "saldo diario", "dia por dia", "saldo inicial", "conciliacion", "cuentas", "flujo bancario", "excel"],
   },
+  {
+    modulo: "Conciliación Bancaria",
+    titulo: "Conciliación Bancaria",
+    descripcion:
+      "Compara el extracto del banco con los movimientos de la cuenta en el sistema: importa el Excel, parea automáticamente, registra comisiones y cargos que faltaban, ignora lo que no aplica y cierra el período.",
+    queHace: [
+      "Importar: eliges la cuenta y el Excel del banco; el sistema detecta las columnas (fecha, descripción, referencia, débito/crédito o monto, saldo) y puedes corregirlas. El formato se guarda por cuenta. Vista previa con período, líneas válidas, omitidas y repetidas; saldo final del banco opcional para cuadrar.",
+      "Parear automático: cada línea del banco busca un movimiento del libro con el mismo monto y sentido, fecha a ±2 días y, si hay, la misma referencia; si dos candidatos empatan la línea queda pendiente para decidir a mano.",
+      "Por línea pendiente: Parear (elige el movimiento), Registrar (crea el movimiento bancario con la fecha del banco, o un gasto pagado desde la cuenta para comisiones/cargos, y lo deja pareado) o Ignorar con nota. Cualquier pareo se puede deshacer mientras el extracto esté abierto.",
+      "Tablero: líneas del banco (con filtro de estado) y movimientos del libro sin conciliar (en tránsito). Resumen: pendientes, entradas/salidas del banco, en tránsito, saldo libro, saldo banco y diferencia.",
+      "Cerrar conciliación: solo con todas las líneas resueltas. La cuenta queda conciliada hasta el fin del período: no se aceptan movimientos con fecha anterior, y las ventas/gastos con asientos conciliados no se pueden borrar. El admin puede reabrir la última conciliación de la cuenta.",
+      "Movimientos de Cuentas muestra la referencia y la etiqueta 'Conciliado'. Excel del extracto.",
+    ],
+    queNoHace: [
+      "No descarga el extracto del banco: lo exportas tú desde la banca en línea (xlsx).",
+      "No cambia montos del libro: si el banco muestra un monto distinto, parea el correcto y registra la diferencia como movimiento o gasto.",
+      "Es distinto de Consolidación Bancaria (saldos día por día): aquí se valida movimiento por movimiento contra el banco.",
+    ],
+    operaciones: [
+      { titulo: "Conciliar el mes", pasos: ["Finanzas → Conciliación Bancaria → cuenta → Elegir archivo (Excel del banco).", "Revisa columnas y vista previa; escribe el saldo final del banco; Importar extracto.", "Parear automático; resuelve las pendientes (parear / registrar / ignorar).", "Cuando la diferencia sea 0 (o explicada por lo en tránsito), Cerrar conciliación."] },
+    ],
+    faqs: [
+      { pregunta: "El banco muestra las salidas en positivo.", respuesta: "Si el extracto tiene columnas Débito y Crédito el sistema lo resuelve solo; si solo hay una columna Monto, activa 'Invertir signo'." },
+      { pregunta: "Registré un pago con fecha anterior y me lo rechaza.", respuesta: "La cuenta ya está conciliada hasta esa fecha. Usa la fecha real posterior o pide al admin reabrir la conciliación." },
+    ],
+    keywords: ["conciliacion", "conciliar", "extracto", "estado de cuenta banco", "parear", "banco vs libro", "en transito", "comision bancaria", "cargos bancarios", "cerrar mes banco", "reabrir conciliacion"],
+  },
 ]

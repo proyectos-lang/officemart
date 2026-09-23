@@ -609,6 +609,16 @@ RPC `SECURITY INVOKER` que devuelve true si el almacén tiene una toma Abierta d
 
 ---
 
+## Officemart — conciliación bancaria (script officemart-014)
+
+### `bancos_formatos_extracto`
+Un formato por cuenta (`cuenta_id UNIQUE`): `hoja, fila_encabezado, mapeo jsonb {fecha, descripcion, referencia, debito, credito, monto, saldo}, formato_fecha, invertir_signo`. RLS por tenant.
+
+### `bancos_extractos` + `bancos_extracto_lineas`
+Extracto `cuenta_id, periodo_desde, periodo_hasta, archivo_nombre, saldo_inicial_banco, saldo_final_banco, estado ('Abierto'|'Conciliado'), conciliado_at, conciliado_por, resumen jsonb`; líneas `fila, fecha, descripcion, referencia, monto (+ entra / − sale), saldo_banco, movimiento_id → cuenta_movimientos, estado ('Pendiente'|'Conciliada'|'Ignorada'), metodo_pareo ('auto'|'manual'|'creado'), nota`. Al parear se marca `cuenta_movimientos.conciliado_at` y `extracto_linea_id` (columnas del officemart-001); `registrarMovimientoCuenta` rechaza fechas ≤ `periodo_hasta` del último extracto Conciliado de la cuenta, `deleteGasto` y el borrado/edición de ventas bloquean si hay asiento conciliado. `lib/services/conciliacion-bancaria.ts`: puras `detectarColumnas` (alias de bancos HN), `parsearFechaExtracto` (serial Excel, DD/MM/AAAA, AAAA-MM-DD, MM/DD forzado), `parsearMontoExtracto` ('1,234.56', '(123.45)', 'L', europeo), `normalizarLineas`, `detectarDuplicadas`, `emparejarMovimientos` (monto con signo, fecha ±2 días, referencia; 1:1 greedy, empates → ambiguas), `calcularSaldoLibro`, `resumenConciliacion` (en tránsito, diferencia banco vs libro); I/O `parsearExtractoXlsx`, formatos por cuenta, `crearExtracto` (uno abierto por cuenta, sin solapar períodos conciliados), `parearAutomatico`, `parearManual`, `desparear`, `ignorarLinea`, `crearMovimientoDesdeLinea` (movimiento `ref_tipo='conciliacion'` con la fecha de la línea, o gasto pagado desde la cuenta), `cerrarConciliacion`, `reabrirConciliacion` (admin), `eliminarExtracto`. Página `finanzas/conciliacion` (módulo "Conciliación Bancaria"); Movimientos muestra referencia y badge Conciliado. `consolidacion-bancaria.ts` no cambia.
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).
