@@ -90,6 +90,7 @@ import {
   type GastoPago,
 } from "@/lib/services/gastos"
 import { getCuentas, type CuentaConfig } from "@/lib/services/cuentas"
+import { CxpComprasSection } from "@/components/compras/cxp-compras"
 import {
   getProveedores,
   createProveedor,
@@ -1171,7 +1172,9 @@ export default function GastosPage() {
         </TabsContent>
 
         {/* ===== CUENTAS POR PAGAR ===== */}
-        <TabsContent value="por-pagar" className="mt-4">
+        <TabsContent value="por-pagar" className="mt-4 space-y-4">
+          {/* Compras a crédito por orden de compra (officemart-008). */}
+          <CxpComprasSection />
           <Card className="bg-white rounded-2xl border-stone-200/60 shadow-sm">
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-2">

@@ -4,6 +4,8 @@ import { getCuentas } from "@/lib/services/cuentas"
 import { getSaldoActualSesionAbierta } from "@/lib/services/caja-chica"
 import { getCuentasPorCobrar } from "@/lib/services/ventas"
 import { getCuentasPorPagar } from "@/lib/services/gastos"
+import { getCuentasPorPagarCompras } from "@/lib/services/compras-recepciones"
+import { getHondurasTodayISODate } from "@/lib/utils/honduras-time"
 import { getEstadoResultadosMensual } from "@/lib/services/estado-resultados"
 
 // ==================== TIPOS ====================
@@ -63,11 +65,13 @@ export async function getFinanzasResumen(): Promise<{ data: FinanzasResumen; err
   }
 
   const ahora = new Date()
-  const [cuentasRes, saldoCaja, cxcRes, cxpRes, erRes] = await Promise.all([
+  const [cuentasRes, saldoCaja, cxcRes, cxpRes, cxpComprasRes, erRes] = await Promise.all([
     getCuentas(),
     getSaldoActualSesionAbierta().catch(() => 0),
     getCuentasPorCobrar(),
     getCuentasPorPagar(),
+    // CxP por orden de compra (officemart-008); 0 si el script no está aplicado.
+    getCuentasPorPagarCompras(getHondurasTodayISODate()).catch(() => ({ totalDeuda: 0 })),
     getEstadoResultadosMensual(ahora.getFullYear(), ahora.getMonth() + 1),
   ])
 
@@ -82,7 +86,7 @@ export async function getFinanzasResumen(): Promise<{ data: FinanzasResumen; err
 
   const totalBancos = cuentas.reduce((a, c) => a + c.saldo, 0)
   const cxcPendiente = (cxcRes.data || []).reduce((a, c) => a + Number(c.saldo_pendiente || 0), 0)
-  const cxpPendiente = Number(cxpRes.totalDeuda || 0)
+  const cxpPendiente = Number(cxpRes.totalDeuda || 0) + Number(cxpComprasRes.totalDeuda || 0)
   const ventasDelMes = Number(erRes.data?.ventas_totales || 0)
 
   const data: FinanzasResumen = {

@@ -15,7 +15,7 @@ export const TUTORIALES_COMPRAS: TutorialModulo[] = [
     ],
     queNoHace: [
       "No mueve inventario ni costos al crearla: el stock y el costo promedio cambian solo al RECIBIR la mercancía (Recepción por OC).",
-      "No registra el pago al proveedor — el pago se maneja en Finanzas → Gastos (cuentas por pagar).",
+      "No registra el pago al crearla. Los anticipos y abonos al proveedor se registran desde el detalle de la orden (secciones 'Recepciones' y 'Pagos al proveedor'), y el saldo aparece en Finanzas → Gastos → Cuentas por Pagar → Compras a crédito.",
     ],
     operaciones: [
       {
@@ -58,12 +58,14 @@ export const TUTORIALES_COMPRAS: TutorialModulo[] = [
     descripcion:
       "Recibir la mercancía de una orden de compra: ingresa el stock al almacén y actualiza el costo promedio de cada producto.",
     queHace: [
-      "Lista las órdenes pendientes y permite recibirlas total o parcialmente (cantidad recibida por línea).",
+      "Lista las órdenes pendientes y permite recibirlas total o PARCIALMENTE en varias recepciones: cada línea muestra Ordenado / Recibido / Recibir; por defecto se recibe lo pendiente y puedes bajar la cantidad (nunca más de lo pendiente). La orden sigue Pendiente hasta completarse y lo que falta se ve en Compras → Backorder.",
+      "Cada recepción queda registrada aparte (número 1, 2, 3… por orden) con sus propios costos extra, tasa y número de factura del proveedor; el prorrateo se calcula SOLO sobre lo que entra en esa recepción. Al elegir una orden con recepciones previas se listan arriba.",
+      "Botón 'Cerrar pendiente': si el proveedor ya no entregará el resto, cierras el backorder con un motivo y la orden pasa a Recibida con lo que entró.",
       "Puedes EDITAR por línea la cantidad, el costo final y el precio de venta. Ves en vivo el margen, la utilidad por unidad, el costo anterior y el precio anterior del producto para decidir.",
       "El precio de venta que pongas ACTUALIZA el precio de lista del producto en el catálogo.",
       "Ingresa las unidades al almacén y localización que elijas.",
       "Recalcula el costo promedio ponderado del producto con el costo final de la compra.",
-      "Método de pago: eliges cómo se paga la recepción — Efectivo (sale de caja chica), Banco (sale de una cuenta) o Cuenta por pagar (queda pendiente al proveedor). Se registra un gasto por el total, así tu balance refleja la salida real.",
+      "Método de pago: Efectivo (sale de caja chica) o Banco (sale de una cuenta) registran un ABONO a la orden por lo recibido; Cuenta por pagar deja la orden con saldo y fecha de vencimiento (hoy + días de crédito del proveedor o los que indiques). Ya NO se crea un gasto 'Compra de mercadería': el costo de la mercancía entra al Estado de Resultados por el costo de ventas, y el saldo al proveedor se ve en Cuentas por Pagar → Compras a crédito.",
       "Deja rastro en el kardex como 'Entrada Compra' vinculada a la orden.",
       "Marca la orden como Recibida cuando se completa.",
       "Muestra un desglose explícito del prorrateo: cuánto de los costos de importación/impuestos/otros se asigna a cada producto (según su valor) y cómo se forma el costo final unitario, con total de control.",
@@ -136,7 +138,7 @@ export const TUTORIALES_COMPRAS: TutorialModulo[] = [
       "Permite mapear cada línea extraída con un producto del catálogo (o crear el producto al vuelo).",
       "Editas por línea la cantidad, el costo y el precio de venta; ves el margen, la utilidad por unidad, el costo anterior y el precio anterior. El precio que pongas actualiza el precio de lista del producto.",
       "Ingresa el stock y actualiza el costo promedio, igual que una recepción normal.",
-      "Método de pago: Efectivo (caja chica), Banco (una cuenta) o Cuenta por pagar (pendiente al proveedor). Se registra un gasto por el total.",
+      "Método de pago: Efectivo (caja chica) o Banco (una cuenta) registran un abono a la compra; Cuenta por pagar la deja con saldo y vencimiento (Finanzas → Gastos → Cuentas por Pagar → Compras a crédito). No se crea un gasto aparte: el costo entra al P&L por el costo de ventas.",
       "Con costos de importación/impuestos/otros, muestra el mismo desglose explícito del prorrateo que la Recepción por OC.",
       "Detección de tallas (si tu empresa usa tallas): cuando la factura desglosa una referencia por talla (S/M/L… o 6/8/10…), la IA la agrupa en una sola línea y marca las tallas detectadas. Al crear ese producto, el diálogo llega precargado con las tallas y sus cantidades; al guardarlo se crean los productos hermanos agrupados y la línea de factura se reemplaza por una línea por talla (cada una entra a inventario con su cantidad).",
       "Agregar tallas a un producto ya asociado (si tu empresa usa tallas): en una línea ya mapeada a un producto que aún NO es tallado, aparece 'Agregar tallas'. Le asignas una talla al producto asociado y agregas las demás con sus cantidades; el producto pasa a ser tallado (conserva su stock e historial), se crean sus hermanas y la línea se reparte en una por talla para el ingreso.",
@@ -241,6 +243,7 @@ export const TUTORIALES_COMPRAS: TutorialModulo[] = [
       "No recalcula recepciones hechas por Recepción por Factura (IA): esas no generan una compra en el sistema y no aparecen en la lista.",
       "No cambia las cantidades recibidas ni los costos unitarios de compra; solo redistribuye los costos fijos.",
       "No revierte el promedio ponderado lote por lote: aplica la diferencia sobre el stock actual, así que si ya se vendió gran parte del lote el ajuste es aproximado.",
+      "No aplica a órdenes recibidas en VARIAS recepciones parciales (cada recepción prorrateó sus propios costos): para corregir el costo usa Inventario → Ajuste de Costo.",
     ],
     operaciones: [
       {
@@ -273,5 +276,41 @@ export const TUTORIALES_COMPRAS: TutorialModulo[] = [
       },
     ],
     keywords: ["recalcular", "recepcion", "importacion", "prorrateo", "costos fijos", "flete", "aduana", "costo lote", "delta", "tasa cambio"],
+  },
+  {
+    modulo: "Backorder",
+    titulo: "Backorder (pendiente de entrega)",
+    descripcion:
+      "Órdenes de compra que ya tuvieron al menos una recepción y a las que el proveedor todavía debe mercancía: qué falta, desde cuándo, y cerrar lo que no llegará.",
+    queHace: [
+      "Lista cada orden con recepción parcial: proveedor, fecha de la orden, días esperando, fecha tentativa (marca si ya venció) y, por producto, Ordenado / Recibido / Pendiente con su costo.",
+      "Resumen: órdenes con pendiente, líneas pendientes y valor aproximado de lo que falta.",
+      "Botón 'Recibir' te lleva a Recepción por OC para registrar la siguiente entrega.",
+      "'Cerrar pendiente': con un motivo, la orden pasa a Recibida con lo que entró (no llegará más). Queda en la bitácora de Auditoría.",
+      "El menú muestra cuántas órdenes tienen backorder. Exporta a Excel.",
+    ],
+    queNoHace: [
+      "No incluye órdenes sin ninguna recepción (esas están en Recepción por OC como pendientes).",
+      "No modifica inventario ni costos al cerrar: solo deja de esperar lo pendiente.",
+      "No reabre una orden cerrada: si el proveedor entrega después, crea una orden nueva.",
+    ],
+    operaciones: [
+      {
+        titulo: "Revisar qué debe cada proveedor",
+        pasos: [
+          "Abre Compras → Backorder.",
+          "Revisa cada tarjeta: las líneas con Pendiente en naranja son lo que falta; 'días esperando' te dice desde cuándo.",
+          "Si ya llegó, presiona Recibir y registra la recepción; si no llegará, 'Cerrar pendiente' con el motivo.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        pregunta: "Recibí una orden completa y sigue apareciendo aquí.",
+        respuesta:
+          "Alguna línea quedó con cantidad recibida menor a la ordenada (por ejemplo bajaste la cantidad al recibir). Recibe el resto o cierra el pendiente.",
+      },
+    ],
+    keywords: ["backorder", "pendiente de entrega", "falta mercancia", "proveedor debe", "recepcion parcial", "cerrar pendiente", "orden incompleta"],
   },
 ]

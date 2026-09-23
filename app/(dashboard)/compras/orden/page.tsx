@@ -68,6 +68,7 @@ import {
 } from "@/lib/services/compras"
 import { getRazonSocialForPdf } from "@/lib/services/ventas"
 import { type Proveedor, type Producto, getProveedores, getProductos } from "@/lib/services/catalogos"
+import { OcRecepcionesPagos } from "@/components/compras/oc-recepciones-pagos"
 
 export default function OrdenCompraPage() {
   const [compras, setCompras] = useState<CompraEncabezado[]>([])
@@ -889,6 +890,9 @@ export default function OrdenCompraPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Recepciones parciales y pagos de la OC (officemart-008). */}
+        <OcRecepcionesPagos compra={selectedCompra} onChange={fetchData} />
 
         <div className="flex justify-start">
           <Button variant="outline" onClick={() => setViewMode("list")}>

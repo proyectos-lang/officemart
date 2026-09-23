@@ -24,6 +24,19 @@ export interface CompraEncabezado {
   total?: number
   estado: 'Pendiente' | 'Recibida' | 'Cancelada'
   created_at?: string
+  /**
+   * Recepciones parciales y CxP por OC (script officemart-008). Nullable:
+   * NULL en OCs anteriores al script o recibidas con el flujo clásico.
+   */
+  forma_pago?: 'Contado' | 'Credito' | string | null
+  dias_credito?: number | null
+  fecha_vencimiento?: string | null
+  monto_pagado?: number | null
+  estado_pago?: 'Pendiente' | 'Parcial' | 'Pagado' | string | null
+  total_recibido_local?: number | null
+  estado_recepcion?: 'Sin recibir' | 'Parcial' | 'Completa' | 'Cerrada' | string | null
+  cerrada_at?: string | null
+  motivo_cierre?: string | null
 }
 
 export interface CompraDetalle {
@@ -313,7 +326,7 @@ export async function deleteCompra(compraId: number): Promise<{ success: boolean
 
 // ==================== RECEPCION Y PRORRATEO ====================
 
-interface RecepcionData {
+export interface RecepcionData {
   compraId: number
   costos_importacion: number
   impuestos_compra: number
@@ -321,9 +334,13 @@ interface RecepcionData {
   tasa_cambio: number
   almacen_id: number
   localizacion_id: number
+  /** Factura del proveedor y notas de ESTA recepción (officemart-008). */
+  numero_factura_proveedor?: string | null
+  notas?: string | null
   detalles: {
     detalle_id: number
     producto_id: number
+    /** Cantidad que se recibe en ESTA recepción (0 = no se recibe ahora). */
     cantidad_recibida: number
     costo_final_local: number
     /** Nuevo precio de venta del producto (opcional). Si > 0, actualiza
@@ -331,19 +348,52 @@ interface RecepcionData {
     precio_venta?: number | null
   }[]
   /**
-   * Pago de la recepción (opcional). Registra un gasto con el total recibido:
-   *   - Efectivo / Banco: gasto pagado (sale de caja chica o de la cuenta).
-   *   - Credito (cuenta por pagar): gasto pendiente al proveedor.
-   * Si no se envía, la recepción NO toca tesorería (comportamiento anterior).
+   * Pago de la recepción (opcional).
+   *   - Con el script officemart-008: Efectivo/Banco registran un ABONO a la
+   *     OC (`compras_pagos` + tesorería); Credito deja la OC como cuenta por
+   *     pagar con vencimiento (hoy + días de crédito). NO se crea gasto.
+   *   - Sin el script (flujo clásico): registra un gasto "Compra de mercadería"
+   *     pagado (Efectivo/Banco) o pendiente (Credito).
+   * Si no se envía, la recepción NO toca tesorería.
    */
   pago?: {
     metodo: 'Efectivo' | 'Banco' | 'Credito'
     cuenta_id?: number | null
     proveedor_id?: number | null
+    referencia?: string | null
+    dias_credito?: number | null
   } | null
 }
 
 export async function procesarRecepcion(data: RecepcionData): Promise<{ success: boolean; error: string | null }> {
+  // Flujo nuevo (officemart-008): recepciones parciales por OC. Import
+  // dinámico para no crear un ciclo estático (compras-recepciones importa de
+  // aquí). Si la tabla no existe, `legacy: true` y seguimos con el flujo clásico.
+  if (isSupabaseConfigured()) {
+    const { registrarRecepcion } = await import('@/lib/services/compras-recepciones')
+    const nuevo = await registrarRecepcion({
+      compraId: data.compraId,
+      costos_importacion: data.costos_importacion,
+      impuestos_compra: data.impuestos_compra,
+      otros_costos: data.otros_costos,
+      tasa_cambio: data.tasa_cambio,
+      almacen_id: data.almacen_id,
+      localizacion_id: data.localizacion_id,
+      numero_factura_proveedor: data.numero_factura_proveedor ?? null,
+      notas: data.notas ?? null,
+      detalles: data.detalles,
+      pago: data.pago
+        ? { metodo: data.pago.metodo, cuenta_id: data.pago.cuenta_id ?? null, referencia: data.pago.referencia ?? null, dias_credito: data.pago.dias_credito ?? null }
+        : null,
+    })
+    if (!nuevo.legacy) return { success: nuevo.success, error: nuevo.error }
+    console.warn('[procesarRecepcion] tablas de recepciones ausentes; usando el flujo clásico. Aplica scripts/officemart-008.')
+  }
+  return procesarRecepcionClasica(data)
+}
+
+/** Flujo anterior (una recepción por OC, gasto "Compra de mercadería"). */
+async function procesarRecepcionClasica(data: RecepcionData): Promise<{ success: boolean; error: string | null }> {
   if (!isSupabaseConfigured()) {
     // LocalStorage fallback
     const savedEnc = localStorage.getItem('compras_encabezado')

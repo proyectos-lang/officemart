@@ -296,17 +296,21 @@ async function getEstadoResultadosCalculado(supabase: ReturnType<typeof createCl
       cmv = (detallesData || []).reduce((acc, d) => acc + ((d.cantidad || 0) * (d.costo_promedio_momento || 0)), 0)
     }
 
-    // Get gastos del mes (filtrados por razon_social_id)
-    let gastosQuery = supabase
-      .from('gastos')
-      .select(`
-        monto,
-        conceptos_gastos (categoria_macro)
-      `)
-      .gte('fecha_gasto', primerDia)
-      .lte('fecha_gasto', ultimoDia)
-    if (tenantId != null) gastosQuery = gastosQuery.eq('razon_social_id', tenantId)
-    const { data: gastosData } = await gastosQuery
+    // Get gastos del mes (filtrados por razon_social_id). Los conceptos con
+    // `excluir_pyg` (officemart-008; p. ej. "Compra de mercadería", ya en el
+    // CMV) no entran; si la columna no existe aún, se consulta sin ella.
+    const armarGastosQuery = (conExcluir: boolean) => {
+      let q = supabase
+        .from('gastos')
+        .select(conExcluir ? `monto, conceptos_gastos (categoria_macro, excluir_pyg)` : `monto, conceptos_gastos (categoria_macro)`)
+        .gte('fecha_gasto', primerDia)
+        .lte('fecha_gasto', ultimoDia)
+      if (tenantId != null) q = q.eq('razon_social_id', tenantId)
+      return q
+    }
+    let gastosRes = await armarGastosQuery(true)
+    if (gastosRes.error && /excluir_pyg/i.test(gastosRes.error.message || '')) gastosRes = await armarGastosQuery(false)
+    const gastosData = (gastosRes.data || []) as { monto: number | null; conceptos_gastos: unknown }[]
 
     const gastosPorCategoria: Record<string, number> = {
       'Servicios': 0,
@@ -322,7 +326,9 @@ async function getEstadoResultadosCalculado(supabase: ReturnType<typeof createCl
     ;(gastosData || []).forEach(g => {
       // El join puede venir tipado como objeto o arreglo segun el parser.
       const concepto = Array.isArray(g.conceptos_gastos) ? g.conceptos_gastos[0] : g.conceptos_gastos
-      const cat = (concepto as { categoria_macro?: string } | null)?.categoria_macro || 'Otros'
+      const c = concepto as { categoria_macro?: string; excluir_pyg?: boolean | null } | null
+      if (c?.excluir_pyg === true) return
+      const cat = c?.categoria_macro || 'Otros'
       gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + (g.monto || 0)
     })
 

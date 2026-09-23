@@ -65,6 +65,12 @@ export interface Gasto {
   concepto_nombre?: string
   categoria_macro?: CategoriaMacro
   proveedor_nombre?: string | null
+  /**
+   * El concepto está marcado para NO ir al estado de resultados
+   * (`conceptos_gastos.excluir_pyg`, script officemart-008): p. ej. "Compra
+   * de mercadería", cuyo costo ya entra al P&L vía CMV.
+   */
+  excluir_pyg?: boolean
 }
 
 /**
@@ -209,15 +215,27 @@ export async function getGastos(): Promise<{ data: Gasto[]; error: string | null
   const supabase = createClient()
   if (!supabase) return { data: [], error: 'Cliente no disponible' }
 
-  // Intento con joins completos.
+  // Intento con joins completos (+ excluir_pyg del concepto, officemart-008).
   let result = await supabase
     .from('gastos')
     .select(`
       *,
-      conceptos_gastos:concepto_id (nombre, categoria_macro),
+      conceptos_gastos:concepto_id (nombre, categoria_macro, excluir_pyg),
       proveedores:proveedor_id (id, nombre)
     `)
     .order('fecha_gasto', { ascending: false })
+
+  // Fallback si la columna excluir_pyg no existe aun (script officemart-008).
+  if (result.error && /excluir_pyg/i.test(result.error.message)) {
+    result = await supabase
+      .from('gastos')
+      .select(`
+        *,
+        conceptos_gastos:concepto_id (nombre, categoria_macro),
+        proveedores:proveedor_id (id, nombre)
+      `)
+      .order('fecha_gasto', { ascending: false })
+  }
 
   // Fallback si proveedor_id / proveedores no existen aun.
   if (
@@ -236,8 +254,9 @@ export async function getGastos(): Promise<{ data: Gasto[]; error: string | null
 
   if (result.error) return { data: [], error: result.error.message }
 
+  type ConceptoJoin = { nombre?: string; categoria_macro?: CategoriaMacro; excluir_pyg?: boolean | null }
   const data = (result.data || []).map((g: Record<string, unknown> & {
-    conceptos_gastos?: { nombre?: string; categoria_macro?: CategoriaMacro } | { nombre?: string; categoria_macro?: CategoriaMacro }[] | null
+    conceptos_gastos?: ConceptoJoin | ConceptoJoin[] | null
     proveedores?: { id?: number; nombre?: string } | { id?: number; nombre?: string }[] | null
   }) => {
     const concepto = Array.isArray(g.conceptos_gastos) ? g.conceptos_gastos[0] : g.conceptos_gastos
@@ -248,6 +267,7 @@ export async function getGastos(): Promise<{ data: Gasto[]; error: string | null
       concepto_nombre: concepto?.nombre || 'Desconocido',
       categoria_macro: concepto?.categoria_macro,
       proveedor_nombre: prov?.nombre || null,
+      excluir_pyg: concepto?.excluir_pyg === true,
     }
   })
 

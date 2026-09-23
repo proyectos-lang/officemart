@@ -8,6 +8,7 @@ import {
   type ProrrateoResultado,
 } from '@/lib/services/compras'
 import { previewAjusteCosto, procesarAjusteCosto, type PreviewAjusteCosto } from '@/lib/services/costo'
+import { getRecepcionesCompra } from '@/lib/services/compras-recepciones'
 
 /**
  * Recalcular una recepcion de importacion YA RECIBIDA con costos fijos nuevos.
@@ -137,6 +138,16 @@ export async function previewRecalculoRecepcion(
   const recibidas = lineasRecibidas(detalles)
   if (recibidas.length === 0) return { data: null, error: 'La compra no tiene lineas recibidas' }
 
+  // Con varias recepciones parciales (officemart-008) el lote no es uno solo:
+  // el prorrateo se hizo por recepción y este recálculo lo mezclaría.
+  const { data: recepciones } = await getRecepcionesCompra(input.compraId)
+  if (recepciones.length > 1) {
+    return {
+      data: null,
+      error: `La OC tiene ${recepciones.length} recepciones parciales; el recálculo por lote solo aplica a compras recibidas en una sola recepción. Ajusta el costo desde Inventario → Ajuste de Costo.`,
+    }
+  }
+
   const costosNuevos = round2(
     Number(input.costos_importacion || 0) + Number(input.impuestos_compra || 0) + Number(input.otros_costos || 0)
   )
@@ -240,6 +251,10 @@ export async function procesarRecalculoRecepcion(
   }
   if (compra.estado !== 'Recibida') {
     return { success: false, productosAfectados: 0, ventasAfectadas: 0, error: 'Solo se pueden recalcular compras ya recibidas' }
+  }
+  const { data: recepciones } = await getRecepcionesCompra(input.compraId)
+  if (recepciones.length > 1) {
+    return { success: false, productosAfectados: 0, ventasAfectadas: 0, error: 'La OC tiene varias recepciones parciales; el recálculo por lote no aplica.' }
   }
 
   const { data: detalles, error: detErr } = await getDetallesCompra(input.compraId)

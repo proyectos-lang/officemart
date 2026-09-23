@@ -50,6 +50,7 @@ import {
   ScrollText,
   MapPin,
   Route,
+  PackageMinus,
   type LucideIcon,
 } from "lucide-react"
 
@@ -81,11 +82,11 @@ export interface ModuloGranular {
 }
 
 /**
- * 53 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 54 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
  * Facturación", "Cotizaciones", "Estado de Cuenta", "Reportes de Ventas",
- * "Trazabilidad" y TODOS los de la
+ * "Trazabilidad", "Backorder" y TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -130,6 +131,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   { nombre: "Recepcion por OC", href: "/compras/recepcion", categoria: "Compras", icon: PackageCheck },
   { nombre: "Recepcion por Factura", href: "/compras/recepcion-ia", categoria: "Compras", icon: FileText },
   { nombre: "Recalcular Recepcion", href: "/compras/recalcular", categoria: "Compras", icon: Calculator },
+  // NUEVO (no-base, officemart-008): órdenes recibidas parcialmente con
+  // pendiente de entrega; permite cerrar lo que no llegará.
+  { nombre: "Backorder", href: "/compras/backorder", categoria: "Compras", icon: PackageMinus },
 
   // ── Inventario ─────────────────────────────────────────────────────────
   {

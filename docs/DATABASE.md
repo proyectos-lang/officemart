@@ -546,6 +546,19 @@ Vista `security_invoker` (respeta RLS): una fila por `ventas_detalle` con `venta
 
 ---
 
+## Officemart — recepciones parciales, backorder y CxP por OC (script officemart-008)
+
+### `compras_recepciones` + `compras_recepciones_detalle`
+Una fila por recepción de una OC: `id, razon_social_id, compra_id, numero (1..n, UNIQUE por OC), fecha, almacen_id, localizacion_id, costos_importacion, impuestos_compra, otros_costos, tasa_cambio, subtotal_local, total_local, numero_factura_proveedor, notas, usuario, created_at`; detalle `recepcion_id → CASCADE, compra_detalle_id, producto_id, cantidad, costo_unitario_origen, costo_final_local, precio_venta_aplicado`. RLS por tenant. `registrarRecepcion` (`lib/services/compras-recepciones.ts`) valida contra lo pendiente (`validarCantidadesRecepcion`), prorratea solo lo recibido (la página pasa `costo_final_local` calculado con las cantidades de ESTA recepción), entra al inventario con `aplicarEntradaCompra`, deja kardex con `recepcion_id` + `referencia_tipo='recepcion'`, incrementa `compras_detalle.cantidad_recibida` (RPC `incrementar_cantidad_recibida`, respaldo leer-modificar-escribir), pondera `costo_final_local` (`costoFinalPonderado`) y actualiza el encabezado (`estado_recepcion`, acumulados, `estado` = Recibida solo al completar). `procesarRecepcion` (compras.ts) delega aquí y cae al flujo clásico si la tabla no existe. `recalculo-recepcion.ts` se niega con más de una recepción.
+
+### `compras_pagos` (+ `compras_encabezado.forma_pago/dias_credito/fecha_vencimiento/monto_pagado/estado_pago/total_recibido_local/estado_recepcion/cerrada_at/motivo_cierre`)
+Anticipos (antes de recibir) y abonos a una OC: `compra_id, recepcion_id, tipo ('Anticipo'|'Abono'), monto, metodo ('Efectivo'|'Banco'), cuenta_id, referencia, concepto, fecha, anulado_at, motivo_anulacion`; cada pago lleva su movimiento de tesorería `ref_tipo='compra_pago'` (`anularPagoCompra` registra el contra-asiento `anulacion_compra_pago`); trigger `AFTER DELETE` limpia tesorería. `recalcularEstadoPagoCompra` compara pagos vigentes contra `total_recibido_local`. **La recepción ya no crea el gasto "Compra de mercadería"** (doble conteo con el CMV): `conceptos_gastos.excluir_pyg` marca ese concepto y `getGastos`/`getEstadoResultadosMensual`/`getAnalisisGastos` lo saltan. `getCuentasPorPagarCompras` alimenta la sección "Compras a crédito" de Gastos → CxP y el resumen financiero. `cerrarBackorder` marca `estado_recepcion='Cerrada'`, `cerrada_at`, `motivo_cierre` y `estado='Recibida'`. Módulo "Backorder" (`getBackorders`: OCs Pendientes con alguna recepción y pendiente > 0).
+
+### `transacciones_inventario.recepcion_id`
+Nullable; qué recepción generó la entrada (`'Entrada Compra'`, `referencia_id` = OC).
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

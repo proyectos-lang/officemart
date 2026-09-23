@@ -48,6 +48,7 @@ import {
   deleteCompra,
   getCompraById
 } from "@/lib/services/compras"
+import { getRecepcionesCompra, cerrarBackorder, type Recepcion } from "@/lib/services/compras-recepciones"
 import { DesgloseProrrateo } from "@/components/recepcion/desglose-prorrateo"
 import { type Proveedor, getProveedores, type Producto, getProductos } from "@/lib/services/catalogos"
 import { getRazonSocialForPdf } from "@/lib/services/ventas"
@@ -74,6 +75,9 @@ interface RecepcionOCDraft {
   overrides: Record<number, { cantidad?: number; costo?: number; precio?: number }>
   pagoMetodo: 'Efectivo' | 'Banco' | 'Credito'
   pagoCuentaId: number | null
+  /** Factura del proveedor y días de crédito de esta recepción (officemart-008). */
+  numeroFacturaProv?: string
+  diasCredito?: string
 }
 
 export default function RecepcionPage() {
@@ -119,6 +123,12 @@ export default function RecepcionPage() {
   const [cuentas, setCuentas] = useState<CuentaConfig[]>([])
   const [pagoMetodo, setPagoMetodo] = useState<'Efectivo' | 'Banco' | 'Credito'>('Credito')
   const [pagoCuentaId, setPagoCuentaId] = useState<number | null>(null)
+  // Recepciones parciales (officemart-008): recepciones previas de la OC,
+  // factura del proveedor y días de crédito de ESTA recepción.
+  const [recepcionesPrevias, setRecepcionesPrevias] = useState<Recepcion[]>([])
+  const [numeroFacturaProv, setNumeroFacturaProv] = useState("")
+  const [diasCredito, setDiasCredito] = useState("")
+  const [cerrandoBackorder, setCerrandoBackorder] = useState(false)
 
   const { toast } = useToast()
 
@@ -174,14 +184,22 @@ export default function RecepcionPage() {
     }
   }, [formData.almacen_id])
 
-  // Recalculate costs when values change
+  // Recalculate costs when values change. El prorrateo se hace SOLO sobre lo
+  // que se recibe en esta recepción (pendiente por línea, o la cantidad
+  // editada), no sobre lo ordenado: así cada recepción parcial carga sus
+  // propios costos extra (officemart-008).
   useEffect(() => {
     if (detalles.length > 0 && selectedCompra) {
       const costosAdicionales = formData.costos_importacion + formData.impuestos_compra + formData.otros_costos
       const tasa = selectedCompra.moneda === 'USD' ? formData.tasa_cambio : 1
-      
+      const efectivos = detalles.map((d) => {
+        const pendiente = Math.max(0, +(d.cantidad - (d.cantidad_recibida || 0)).toFixed(4))
+        const ov = d.id != null ? overrides[d.id] : undefined
+        return { ...d, cantidad: ov?.cantidad != null ? ov.cantidad : pendiente }
+      })
+
       const detallado = calcularProrrateoDetallado(
-        detalles,
+        efectivos,
         costosAdicionales,
         selectedCompra.moneda,
         tasa
@@ -198,7 +216,7 @@ export default function RecepcionPage() {
     } else {
       setProrrateo(null)
     }
-  }, [detalles, formData.costos_importacion, formData.impuestos_compra, formData.otros_costos, formData.tasa_cambio, selectedCompra])
+  }, [detalles, overrides, formData.costos_importacion, formData.impuestos_compra, formData.otros_costos, formData.tasa_cambio, selectedCompra])
 
   // Rehidratación del borrador (una sola vez): re-selecciona la OC guardada y
   // aplica lo capturado. Los overrides/pago se aplican cuando cargan los detalles.
@@ -241,6 +259,8 @@ export default function RecepcionPage() {
     setOverrides(pend.overrides || {})
     setPagoMetodo(pend.pagoMetodo || 'Credito')
     setPagoCuentaId(pend.pagoCuentaId ?? null)
+    setNumeroFacturaProv(pend.numeroFacturaProv || "")
+    setDiasCredito(pend.diasCredito || "")
   }, [detalles])
 
   // Guarda el borrador ante cambios relevantes (debounced dentro del hook).
@@ -261,9 +281,11 @@ export default function RecepcionPage() {
       overrides,
       pagoMetodo,
       pagoCuentaId,
+      numeroFacturaProv,
+      diasCredito,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.ready, selectedCompra, formData, overrides, pagoMetodo, pagoCuentaId])
+  }, [draft.ready, selectedCompra, formData, overrides, pagoMetodo, pagoCuentaId, numeroFacturaProv, diasCredito])
 
   const handleSelectCompra = async (compra: CompraEncabezado) => {
     setSelectedCompra(compra)
@@ -281,13 +303,34 @@ export default function RecepcionPage() {
     setOverrides({})
     setPagoMetodo('Credito')
     setPagoCuentaId(null)
+    setNumeroFacturaProv("")
+    setDiasCredito("")
+    setRecepcionesPrevias([])
 
-    const { data, error } = await getDetallesCompra(compra.id!)
+    const [{ data, error }, previas] = await Promise.all([getDetallesCompra(compra.id!), getRecepcionesCompra(compra.id!)])
     if (error) {
       toast({ title: "Error", description: error, variant: "destructive" })
     }
     setDetalles(data)
+    setRecepcionesPrevias(previas.data)
     setLoadingDetalles(false)
+  }
+
+  // Cierra lo pendiente de la OC seleccionada (backorder que no llegará).
+  const handleCerrarBackorder = async () => {
+    if (!selectedCompra?.id) return
+    const motivo = window.prompt("Motivo del cierre (lo pendiente ya no llegará):")
+    if (motivo == null) return
+    setCerrandoBackorder(true)
+    const { error } = await cerrarBackorder(selectedCompra.id, motivo)
+    setCerrandoBackorder(false)
+    if (error) {
+      toast({ title: "No se pudo cerrar", description: error, variant: "destructive" })
+      return
+    }
+    toast({ title: "Pendiente cerrado", description: `OC-${selectedCompra.id} queda Recibida con lo que entró.` })
+    descartarRecepcion()
+    fetchData()
   }
 
   // Descarta la recepción en curso (deselecciona la OC y borra el borrador).
@@ -317,6 +360,32 @@ export default function RecepcionPage() {
       return
     }
 
+    // Cantidades a recibir: nunca más de lo pendiente por línea; al menos una > 0.
+    const lineasRecibir = costosCalculados.map(c => {
+      const det = detalles.find((d) => d.id === c.detalle_id)
+      const pendiente = det ? Math.max(0, +(det.cantidad - (det.cantidad_recibida || 0)).toFixed(4)) : c.cantidad
+      const ov = overrides[c.detalle_id] || {}
+      return {
+        detalle_id: c.detalle_id,
+        producto_id: c.producto_id,
+        cantidad_recibida: ov.cantidad != null ? ov.cantidad : pendiente,
+        pendiente,
+        nombre: det?.producto_nombre || `#${c.producto_id}`,
+        costo_final_local: ov.costo != null ? ov.costo : c.costo_final_local,
+        precio_venta: ov.precio != null && ov.precio > 0 ? ov.precio : null,
+      }
+    })
+    const exceso = lineasRecibir.find((l) => l.cantidad_recibida > l.pendiente + 0.0001)
+    if (exceso) {
+      toast({ title: "Cantidad mayor a lo pendiente", description: `${exceso.nombre}: solo faltan ${exceso.pendiente}.`, variant: "destructive" })
+      return
+    }
+    if (!lineasRecibir.some((l) => l.cantidad_recibida > 0)) {
+      toast({ title: "Nada que recibir", description: "Indica al menos una cantidad mayor a 0.", variant: "destructive" })
+      return
+    }
+    const esParcial = lineasRecibir.some((l) => l.cantidad_recibida < l.pendiente - 0.0001)
+
     setProcessing(true)
 
     const recepcionData = {
@@ -327,20 +396,13 @@ export default function RecepcionPage() {
       tasa_cambio: formData.tasa_cambio,
       almacen_id: formData.almacen_id,
       localizacion_id: formData.localizacion_id,
-      detalles: costosCalculados.map(c => {
-        const ov = overrides[c.detalle_id] || {}
-        return {
-          detalle_id: c.detalle_id,
-          producto_id: c.producto_id,
-          cantidad_recibida: ov.cantidad != null ? ov.cantidad : c.cantidad,
-          costo_final_local: ov.costo != null ? ov.costo : c.costo_final_local,
-          precio_venta: ov.precio != null && ov.precio > 0 ? ov.precio : null,
-        }
-      }),
+      numero_factura_proveedor: numeroFacturaProv.trim() || null,
+      detalles: lineasRecibir.map(({ pendiente: _p, nombre: _n, ...l }) => l),
       pago: {
         metodo: pagoMetodo,
         cuenta_id: pagoMetodo === 'Banco' ? pagoCuentaId : null,
         proveedor_id: selectedCompra.proveedor_id ?? null,
+        dias_credito: pagoMetodo === 'Credito' && diasCredito.trim() !== "" ? Number(diasCredito) : null,
       },
     }
 
@@ -348,11 +410,15 @@ export default function RecepcionPage() {
     setProcessing(false)
 
     if (error) {
-      toast({ title: "Error", description: error, variant: "destructive" })
-    } else if (success) {
-      toast({ 
-        title: "Recepcion Exitosa", 
-        description: "La mercancia ha sido ingresada al inventario y los costos actualizados" 
+      toast({ title: success ? "Recepción con avisos" : "Error", description: error, variant: success ? "default" : "destructive" })
+      if (!success) return
+    }
+    if (success) {
+      if (!error) toast({
+        title: esParcial ? "Recepción parcial registrada" : "Recepcion Exitosa",
+        description: esParcial
+          ? "Entró lo indicado; el resto queda como backorder (la orden sigue Pendiente)."
+          : "La mercancia ha sido ingresada al inventario y los costos actualizados",
       })
       setSelectedCompra(null)
       setDetalles([])
@@ -539,14 +605,18 @@ export default function RecepcionPage() {
     const ov = d.id != null ? overrides[d.id] : undefined
     const costoDefault = costosCalculados[idx]?.costo_final_local
       ?? d.costo_unitario_moneda_origen * (selectedCompra?.moneda === "USD" ? formData.tasa_cambio : 1)
-    const cantidad = ov?.cantidad != null ? ov.cantidad : d.cantidad
+    // Por defecto se recibe lo PENDIENTE (ordenado − ya recibido en
+    // recepciones previas); el usuario puede bajar la cantidad (parcial).
+    const recibido = d.cantidad_recibida || 0
+    const pendiente = Math.max(0, +(d.cantidad - recibido).toFixed(4))
+    const cantidad = ov?.cantidad != null ? ov.cantidad : pendiente
     const costo = ov?.costo != null ? ov.costo : +costoDefault.toFixed(4)
     const precioAnterior = prod?.precio_venta_sugerido ?? 0
     const precio = ov?.precio != null ? ov.precio : precioAnterior
     const costoAnterior = prod?.costo_promedio ?? 0
     const utilidad = +(precio - costo).toFixed(2)
     const margen = precio > 0 ? +(((precio - costo) / precio) * 100).toFixed(1) : 0
-    return { cantidad, costo, precio, precioAnterior, costoAnterior, utilidad, margen }
+    return { cantidad, costo, precio, precioAnterior, costoAnterior, utilidad, margen, ordenado: d.cantidad, recibido, pendiente }
   }
 
   function setOverride(detalleId: number, patch: { cantidad?: number; costo?: number; precio?: number }) {
@@ -679,6 +749,24 @@ export default function RecepcionPage() {
               </div>
             ) : (
               <div className="space-y-4 md:space-y-6">
+                {/* Recepciones previas de la OC (recepción parcial en curso). */}
+                {recepcionesPrevias.length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                    <p className="font-medium text-amber-900 mb-1">
+                      Esta orden ya tiene {recepcionesPrevias.length} recepción(es); lo que se muestra abajo es lo PENDIENTE.
+                    </p>
+                    <ul className="text-xs text-amber-900/80 space-y-0.5">
+                      {recepcionesPrevias.map((r) => (
+                        <li key={r.id}>
+                          #{r.numero} · {formatDate(r.fecha)} · {formatCurrency(r.total_local, "LPS")}
+                          {r.numero_factura_proveedor ? ` · factura ${r.numero_factura_proveedor}` : ""}
+                          {r.detalle && r.detalle.length > 0 ? ` · ${r.detalle.map((d) => `${d.producto_nombre || d.producto_id} ×${d.cantidad}`).join(", ")}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {/* Products — mobile cards + desktop table */}
                 <div>
                   <h4 className="text-sm font-medium mb-3">Productos a Recibir</h4>
@@ -693,8 +781,8 @@ export default function RecepcionPage() {
                         <p className="text-xs text-muted-foreground font-mono mb-2">{d.producto_codigo}</p>
                         <div className="grid grid-cols-3 gap-2 text-xs">
                           <div>
-                            <p className="text-muted-foreground">Cant.</p>
-                            <Input type="number" min="0" step="1" value={lc.cantidad}
+                            <p className="text-muted-foreground">Recibir (pend. {lc.pendiente}{lc.recibido > 0 ? ` de ${lc.ordenado}` : ""})</p>
+                            <Input type="number" min="0" max={lc.pendiente} step="1" value={lc.cantidad}
                               onChange={(e) => d.id != null && setOverride(d.id, { cantidad: parseFloat(e.target.value) || 0 })}
                               className="h-8" />
                           </div>
@@ -727,7 +815,9 @@ export default function RecepcionPage() {
                     <TableHeader sticky>
                       <TableRow>
                         <TableHead>Producto</TableHead>
-                        <TableHead className="text-right w-20">Cant.</TableHead>
+                        <TableHead className="text-right w-20">Ordenado</TableHead>
+                        <TableHead className="text-right w-20">Recibido</TableHead>
+                        <TableHead className="text-right w-24">Recibir</TableHead>
                         <TableHead className="text-right w-28">Costo (LPS)</TableHead>
                         <TableHead className="text-right w-28">Precio venta</TableHead>
                         <TableHead className="text-right w-24">Margen</TableHead>
@@ -747,12 +837,15 @@ export default function RecepcionPage() {
                               <p className="text-xs text-muted-foreground">{d.producto_codigo}</p>
                             </div>
                           </TableCell>
+                          <TableCell className="text-right text-muted-foreground">{lc.ordenado}</TableCell>
+                          <TableCell className={`text-right ${lc.recibido > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>{lc.recibido}</TableCell>
                           <TableCell className="text-right">
                             <Input
-                              type="number" min="0" step="1"
+                              type="number" min="0" max={lc.pendiente} step="1"
                               value={lc.cantidad}
                               onChange={(e) => d.id != null && setOverride(d.id, { cantidad: parseFloat(e.target.value) || 0 })}
-                              className="h-8 w-16 text-right ml-auto"
+                              className={`h-8 w-20 text-right ml-auto ${lc.cantidad > lc.pendiente ? "border-destructive" : ""}`}
+                              title={`Pendiente: ${lc.pendiente}`}
                             />
                           </TableCell>
                           <TableCell className="text-right">
@@ -928,8 +1021,21 @@ export default function RecepcionPage() {
                       </div>
                     )}
                   </div>
+                  <div className="grid gap-3 sm:grid-cols-2 mt-3">
+                    <div className="grid gap-2">
+                      <Label className="text-xs">N.º factura del proveedor (de esta recepción)</Label>
+                      <Input value={numeroFacturaProv} onChange={(e) => setNumeroFacturaProv(e.target.value)} placeholder="Opcional" />
+                    </div>
+                    {pagoMetodo === 'Credito' && (
+                      <div className="grid gap-2">
+                        <Label className="text-xs">Días de crédito</Label>
+                        <Input type="number" min="0" value={diasCredito} onChange={(e) => setDiasCredito(e.target.value)} placeholder="Del proveedor (o 30)" />
+                      </div>
+                    )}
+                  </div>
                   <p className="mt-2 text-[11px] text-muted-foreground">
-                    Se registra un gasto por el total recibido. En «Cuenta por pagar» queda pendiente al proveedor (Finanzas → Gastos); en Efectivo/Banco se paga y sale del saldo.
+                    Efectivo/Banco: se registra un abono a la orden por lo recibido (sale de caja o de la cuenta). «Cuenta por pagar»: la orden queda con saldo y vencimiento
+                    (Finanzas → Gastos → Cuentas por Pagar → Compras a crédito); los abonos y anticipos se registran desde el detalle de la orden.
                   </p>
                 </div>
 
@@ -973,7 +1079,19 @@ export default function RecepcionPage() {
                 </div>
 
                 {/* Action Button */}
-                <div className="flex justify-end gap-2">
+                <div className="flex justify-end gap-2 flex-wrap">
+                  {recepcionesPrevias.length > 0 && (
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      className="text-red-700"
+                      onClick={handleCerrarBackorder}
+                      disabled={processing || cerrandoBackorder}
+                      title="Lo pendiente ya no llegará: la orden queda Recibida con lo que entró"
+                    >
+                      Cerrar pendiente
+                    </Button>
+                  )}
                   <Button
                     size="lg"
                     variant="outline"

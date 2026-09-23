@@ -418,7 +418,8 @@ export async function getAnalisisGastos(
   try {
     const { data: gastos, error: gErr } = await getGastos()
     if (gErr) return { data: null, error: gErr }
-    const todos = gastos || []
+    // Conceptos fuera del P&L (officemart-008: "Compra de mercadería" ya está en el CMV).
+    const todos = (gastos || []).filter((g) => !g.excluir_pyg)
 
     const enRango = todos.filter((g) => g.fecha_gasto >= desde && g.fecha_gasto <= hasta)
     const gastoTotal = round2(enRango.reduce((a, g) => a + Number(g.monto || 0), 0))

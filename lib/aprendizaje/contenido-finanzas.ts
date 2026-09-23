@@ -165,8 +165,9 @@ export const TUTORIALES_FINANZAS: TutorialModulo[] = [
       "Alimenta el Estado de Resultados por categoría de gasto.",
     ],
     queNoHace: [
-      "No registra compras de mercancía para inventario (eso va por Compras, que afecta stock y costo).",
+      "No registra compras de mercancía para inventario (eso va por Compras, que afecta stock y costo). Las órdenes de compra a crédito aparecen en la pestaña Cuentas por Pagar como 'Compras a crédito' (saldo = recibido − pagos) y se abonan desde el detalle de la orden; no se crea un gasto por ellas (su costo va al P&L por el costo de ventas).",
       "No programa pagos automáticos: los abonos los registras tú.",
+      "Los conceptos marcados 'fuera del estado de resultados' (p. ej. el antiguo 'Compra de mercadería') no suman en el P&L ni en el análisis de gastos.",
     ],
     operaciones: [
       {
