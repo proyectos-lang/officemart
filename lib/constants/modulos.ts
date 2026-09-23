@@ -52,6 +52,7 @@ import {
   Route,
   PackageMinus,
   RefreshCw,
+  Handshake,
   type LucideIcon,
 } from "lucide-react"
 
@@ -83,12 +84,12 @@ export interface ModuloGranular {
 }
 
 /**
- * 57 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 58 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
  * Facturación", "Cotizaciones", "Estado de Cuenta", "Reportes de Ventas",
  * "Trazabilidad", "Backorder", "Reportes de Compras", "Reposición",
- * "Comisiones" y TODOS los de la
+ * "Comisiones", "Consignación" y TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -169,6 +170,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // NUEVO (no-base, officemart-009): mínimos / punto de reorden, cobertura,
   // lead time y sugerido de compra con creación de OC en borrador.
   { nombre: "Reposición", href: "/inventario/reposicion", categoria: "Inventario", icon: RefreshCw },
+  // NUEVO (no-base, officemart-012): localizaciones en consignación y
+  // liquidación al proveedor propietario (OC a crédito).
+  { nombre: "Consignación", href: "/inventario/consignacion", categoria: "Inventario", icon: Handshake },
 
   // ── Produccion (modulos NUEVOS, nacen deshabilitados: no estan en MODULOS_BASE) ──
   { nombre: "Operaciones de Produccion", href: "/produccion/operaciones", categoria: "Produccion", icon: Workflow },

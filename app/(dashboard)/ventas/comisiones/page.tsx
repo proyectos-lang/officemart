@@ -285,7 +285,7 @@ export default function ComisionesPage() {
         {/* ---- Liquidaciones ---- */}
         <TabsContent value="liquidaciones">
           <Card>
-            <CardHeader className="p-4 md:p-6"><CardTitle className="text-base">Liquidaciones</CardTitle><CardDescription>Cada liquidación crea un gasto "Comisiones de ventas"; márcala pagada cuando se pague desde Finanzas → Gastos.</CardDescription></CardHeader>
+            <CardHeader className="p-4 md:p-6"><CardTitle className="text-base">Liquidaciones</CardTitle><CardDescription>Cada liquidación crea un gasto «Comisiones de ventas»; márcala pagada cuando se pague desde Finanzas → Gastos.</CardDescription></CardHeader>
             <CardContent className="p-4 md:p-6 pt-0">
               {liquidaciones.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">Sin liquidaciones.</p>

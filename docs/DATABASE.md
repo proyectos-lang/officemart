@@ -589,6 +589,16 @@ Liquidación `vendedor_id, periodo_desde, periodo_hasta, total, estado ('Aprobad
 
 ---
 
+## Officemart — consignación (script officemart-012)
+
+### `localizaciones_config.tipo / propietario_proveedor_id`
+Nullable: `'consignacion'` marca la localización como mercancía de un proveedor (`propietario_proveedor_id`). `setLocalizacionConsignacion` hace upsert en `localizaciones_config` (conserva `es_punto_venta`).
+
+### `consignacion_liquidaciones` + `consignacion_liquidaciones_detalle`
+Liquidación `proveedor_id, localizacion_id, periodo_desde/hasta, total, estado ('Aprobada'|'Anulada'), compra_id, notas`; detalle `transaccion_id` (movimiento `'Salida Venta'` liquidado), `venta_id, producto_id, cantidad, costo_pactado, monto`. `lib/services/consignacion.ts`: `getConsignacionPendiente` lee el kardex de las localizaciones en consignación (ventas vigentes) y excluye los `transaccion_id` ya liquidados (pura `agruparConsignacion`); `liquidarConsignacion` crea liquidación + detalle y una **OC a crédito ya recibida** (`createCompra` estado Recibida + `forma_pago='Credito'`, `total_recibido_local`, vencimiento; sin tocar inventario) que entra a CxP → Compras a crédito; `anularLiquidacionConsignacion` cancela la OC si no tiene pagos. `getValoracionConsignacion` separa propio/consignado (`vista_stock_por_localizacion` × costo promedio; pura `separarValoracion`). Módulo "Consignación".
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

@@ -381,4 +381,30 @@ export const TUTORIALES_INVENTARIO: TutorialModulo[] = [
     ],
     keywords: ["reposicion", "reorden", "minimo", "punto de reorden", "stock bajo", "sugerido", "cobertura", "lead time", "que comprar", "cuanto comprar"],
   },
+  {
+    modulo: "Consignación",
+    titulo: "Consignación",
+    descripcion:
+      "Mercancía de un proveedor que está en tu tienda pero solo se le paga cuando se vende: localizaciones en consignación, ventas por liquidar, liquidación al proveedor y valoración separada.",
+    queHace: [
+      "Localizaciones: marca una localización como 'Consignación' y elige el proveedor propietario. Recibe ahí la mercancía consignada (ingreso manual o recepción) y véndela normalmente desde esa localización.",
+      "Por liquidar: agrupa por proveedor y localización las ventas vigentes hechas desde localizaciones en consignación (por el kardex), con cantidad, costo pactado (costo promedio del producto) y monto.",
+      "Liquidar: crea la liquidación y una orden de compra a crédito YA recibida (no mueve inventario) por el total, con vencimiento a los días indicados; aparece en Cuentas por Pagar → Compras a crédito y se paga desde la orden.",
+      "Las ventas anuladas no se liquidan; una liquidación anulada devuelve sus ventas a 'por liquidar' (si su OC no tiene pagos, la OC se cancela).",
+      "Valoración: inventario consignado vs propio (a costo) y stock por localización en consignación. Excel de lo pendiente.",
+    ],
+    queNoHace: [
+      "No cambia el costo promedio ni el precio del producto: el costo pactado es el costo promedio vigente del producto; regístralo bien al ingresar la mercancía.",
+      "No liquida devoluciones automáticamente: si un cliente devuelve un producto consignado, ajusta con el proveedor en la siguiente liquidación (anula y vuelve a liquidar si aún no se pagó).",
+      "No paga: el pago es el de la OC generada (anticipo/abono desde la orden).",
+    ],
+    operaciones: [
+      { titulo: "Configurar una vitrina en consignación", pasos: ["Crea la localización en Configuración → Almacenes (p. ej. 'Vitrina Proveedor X').", "Inventario → Consignación → Localizaciones → Editar: activa Consignación y elige el proveedor. Guarda.", "Ingresa la mercancía a esa localización (Movimientos Manuales o una recepción) y vende desde ella en Nueva Venta."] },
+      { titulo: "Liquidar al proveedor a fin de mes", pasos: ["Pestaña Por liquidar: revisa las ventas del proveedor.", "Liquidar → días de crédito → confirmar: se crea la OC a crédito.", "Paga la OC desde Compras → Orden de Compra (Pagos) o Finanzas → Gastos → Cuentas por Pagar → Compras a crédito."] },
+    ],
+    faqs: [
+      { pregunta: "Vendí un producto consignado pero no aparece por liquidar.", respuesta: "La venta debió salir de la localización marcada como consignación (revisa el kardex del producto: la salida debe tener esa localización). Si salió de otra, no es consignación." },
+    ],
+    keywords: ["consignacion", "consignado", "mercancia en consignacion", "liquidar proveedor", "vitrina", "propietario", "se paga al vender", "inventario consignado"],
+  },
 ]
