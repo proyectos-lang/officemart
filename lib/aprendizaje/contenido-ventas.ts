@@ -481,4 +481,71 @@ export const TUTORIALES_VENTAS: TutorialModulo[] = [
     ],
     keywords: ["reclamo", "reclamos", "queja", "garantia", "resolucion", "procede", "no procede", "seguimiento", "cliente insatisfecho"],
   },
+  {
+    modulo: "Cotizaciones",
+    titulo: "Cotizaciones (presupuestos)",
+    descripcion:
+      "Cotiza a clientes o prospectos con vigencia, envíala en PDF, márcala aprobada y factúrala en un clic desde Nueva Venta.",
+    queHace: [
+      "Crea cotizaciones con número correlativo COT-####, cliente registrado o solo el nombre del prospecto, vendedor, vigencia (15 días por defecto), descuento global, ISV opcional, condiciones (van en el PDF) y notas internas.",
+      "Líneas del catálogo (con el precio de la lista del cliente si tiene) o líneas libres (servicios, conceptos), cada una con cantidad, precio y % de descuento propio.",
+      "Estados: Borrador → Enviada → Aprobada → Facturada. Una Borrador/Enviada que pasa su vigencia se marca Vencida automáticamente al abrir el módulo; se puede reactivar con nueva vigencia. Rechazada guarda el motivo (precio, plazo…).",
+      "Facturar: lleva la cotización a Nueva Venta con el cliente, las líneas y los precios cotizados (no se re-precian); al cobrar, la cotización queda Facturada con el número de la factura.",
+      "PDF de la cotización con logo, vigencia y condiciones; Excel del listado; duplicar cualquier cotización como nuevo borrador.",
+      "El menú muestra cuántas cotizaciones enviadas/aprobadas vencen en los próximos 3 días.",
+    ],
+    queNoHace: [
+      "No afecta inventario ni dinero: solo la venta que se genera al facturarla descuenta stock y cobra.",
+      "No se edita una cotización Aprobada, Facturada, Vencida o Rechazada: duplícala para hacer una nueva versión.",
+      "No envía correos por sí misma (descarga el PDF y envíalo); la firma digital y el envío automático llegan en fases posteriores.",
+      "Solo se elimina un Borrador; las demás se rechazan para conservar la historia.",
+    ],
+    operaciones: [
+      {
+        titulo: "Crear y enviar una cotización",
+        pasos: [
+          "Abre Ventas → Cotizaciones → 'Nueva cotización'.",
+          "Elige el cliente (o escribe el nombre del prospecto), la vigencia y, si aplica, el vendedor, descuento e ISV.",
+          "Agrega productos del catálogo (buscador) o líneas libres con descripción, cantidad y precio; ajusta % por línea si hace falta.",
+          "Escribe las condiciones (forma de pago, entrega) y guarda: se asigna el número COT-####.",
+          "En el listado, menú de la fila → PDF para enviarla, y 'Marcar como enviada'.",
+        ],
+      },
+      {
+        titulo: "Aprobar y facturar",
+        pasos: [
+          "Cuando el cliente confirme, menú → 'Aprobada por el cliente'.",
+          "Menú → 'Facturar (Nueva Venta)': se abre el punto de venta con todo cargado.",
+          "Revisa almacén, stock y cobro, y guarda la venta. La cotización pasa a Facturada.",
+        ],
+      },
+      {
+        titulo: "Reactivar una vencida o registrar una perdida",
+        pasos: [
+          "Vencida → menú → 'Reactivar (nueva vigencia)' y vuelve a Enviada.",
+          "Si el cliente no compró: menú → 'Rechazada / perdida' con el motivo.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        pregunta: "¿Por qué en Nueva Venta el precio no cambió al elegir el cliente?",
+        respuesta:
+          "Las líneas que vienen de una cotización llevan el precio pactado y no se re-precian con la lista del cliente. Si quieres el precio de lista, quita la línea y vuelve a agregarla desde el catálogo.",
+      },
+      {
+        pregunta: "Facturé pero la cotización sigue Aprobada.",
+        respuesta:
+          "La venta se creó desde Nueva Venta sin pasar por 'Facturar' en Cotizaciones. Usa siempre ese botón para que se enlacen; si ya ocurrió, márcala Rechazada con el motivo 'facturada aparte' o duplícala.",
+      },
+      {
+        pregunta: "Veo 'Cotizaciones pendientes: aplica scripts/officemart-006…'.",
+        respuesta: "La base de datos aún no tiene las tablas del módulo. Pide al administrador que ejecute ese script en Supabase.",
+      },
+    ],
+    keywords: [
+      "cotizacion", "cotizaciones", "presupuesto", "proforma", "prospecto", "vigencia", "vencida",
+      "aprobada", "facturar cotizacion", "convertir a venta", "pdf cotizacion", "condiciones", "cot",
+    ],
+  },
 ]

@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/collapsible"
 import { MODULOS, CATEGORIAS_ORDEN, type Categoria, type ModuloGranular } from "@/lib/constants/modulos"
 import { usePedidosPendientes } from "@/lib/hooks/use-pedidos-pendientes"
+import { useCotizacionesPorVencer } from "@/lib/hooks/use-cotizaciones-por-vencer"
 import { useActualizaciones } from "@/lib/hooks/use-actualizaciones"
 
 // Iconos por categoria (el contenedor del collapsible)
@@ -52,6 +53,7 @@ export function ERPSidebar() {
   const pathname = usePathname()
   const { user, hasModulo } = useAuth()
   const pedidosPendientes = usePedidosPendientes()
+  const cotizacionesPorVencer = useCotizacionesPorVencer()
   const { hayNueva: hayActualizacion } = useActualizaciones()
 
   // Agrupa los modulos granulares por categoria, filtrando por permiso
@@ -157,6 +159,14 @@ export function ERPSidebar() {
                                   {m.nombre === "Catalogo" && pedidosPendientes > 0 && (
                                     <span className="ml-auto rounded-full bg-amber-500 text-white text-[10px] font-semibold px-1.5 py-0.5 leading-none">
                                       {pedidosPendientes}
+                                    </span>
+                                  )}
+                                  {m.nombre === "Cotizaciones" && cotizacionesPorVencer > 0 && (
+                                    <span
+                                      className="ml-auto rounded-full bg-amber-500 text-white text-[10px] font-semibold px-1.5 py-0.5 leading-none"
+                                      title="Cotizaciones por vencer (3 días)"
+                                    >
+                                      {cotizacionesPorVencer}
                                     </span>
                                   )}
                                 </Link>

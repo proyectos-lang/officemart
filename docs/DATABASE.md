@@ -521,6 +521,18 @@ Nullable. `crearVenta({punto_facturacion})` usa la serie interna del punto (`sig
 
 ---
 
+## Officemart — cotizaciones (script officemart-006)
+
+### `cotizaciones_encabezado`
+`id, razon_social_id, numero (COT-#### de la serie COT, UNIQUE por empresa), cliente_id (NULL = prospecto), cliente_nombre (foto), vendedor_id, punto_facturacion_id, fecha, vigencia_hasta, estado ('Borrador'|'Enviada'|'Aprobada'|'Facturada'|'Vencida'|'Rechazada'), aplica_impuesto, porcentaje_impuesto, descuento (%), subtotal, impuesto_total, total, notas, condiciones, motivo_rechazo, venta_id, orden_id (reservado OT), usuario, created_at, updated_at`. RLS por tenant.
+
+### `cotizaciones_detalle`
+`id, razon_social_id, cotizacion_id → encabezado (CASCADE), orden, producto_id (NULL = línea libre), descripcion, cantidad, precio_unitario, descuento_linea (%), subtotal`. RLS por tenant.
+
+`lib/services/cotizaciones.ts`: puras `calcularTotalesCotizacion`, `puedeTransicionar` (Borrador→Enviada/Aprobada/Rechazada; Enviada→Aprobada/Rechazada/Borrador; Aprobada→Facturada/Rechazada/Enviada; Vencida→Enviada/Rechazada; Rechazada→Borrador; Facturada final), `estaVencida`, `diasParaVencer`; `marcarVencidas` corre al listar; conversión a venta vía `sessionStorage` (`prepararConversionAVenta` → Nueva Venta `leerConversionPendiente`, líneas con `precio_fijo`, y `marcarCotizacionFacturada(id, venta_id)` al guardar). Módulo "Cotizaciones"; badge del sidebar con las que vencen en 3 días (`useCotizacionesPorVencer`). PDF con `generarFacturaPdf({ tipo: 'cotizacion' })`.
+
+---
+
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).

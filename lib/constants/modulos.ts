@@ -80,10 +80,10 @@ export interface ModuloGranular {
 }
 
 /**
- * 49 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 50 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
- * Facturación" y TODOS los de la
+ * Facturación", "Cotizaciones" y TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
@@ -114,6 +114,9 @@ export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // NUEVO (no-base, officemart-003): reclamos del cliente sobre una factura,
   // con resolución (anulación / devolución / sin cambio).
   { nombre: "Reclamos de Ventas", href: "/ventas/reclamos", categoria: "Ventas", icon: MessageSquareWarning },
+  // NUEVO (no-base, officemart-006): cotizaciones/presupuestos con vigencia,
+  // estados y conversión a venta desde Nueva Venta.
+  { nombre: "Cotizaciones", href: "/ventas/cotizaciones", categoria: "Ventas", icon: FileText },
 
   // ── Compras ────────────────────────────────────────────────────────────
   { nombre: "Orden de Compra", href: "/compras/orden", categoria: "Compras", icon: FileText },

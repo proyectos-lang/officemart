@@ -52,8 +52,11 @@ export interface FacturaPdfFiscal {
 }
 
 export interface FacturaPdfParams {
-  /** "venta" (default) o "devolucion". */
-  tipo?: "venta" | "devolucion"
+  /** "venta" (default), "devolucion" o "cotizacion". */
+  tipo?: "venta" | "devolucion" | "cotizacion"
+  /** Solo cotizacion: fecha de vigencia (YYYY-MM-DD) y condiciones comerciales. */
+  vigenciaHasta?: string | null
+  condiciones?: string | null
   empresa: FacturaPdfEmpresa | null
   /** Numero de factura o de devolucion. */
   numeroDocumento: string
@@ -111,7 +114,8 @@ export async function generarFacturaPdf(
     motivoAnulacion,
   } = params
   const esDevolucion = tipo === "devolucion"
-  const esFiscal = !esDevolucion && !!fiscal
+  const esCotizacion = tipo === "cotizacion"
+  const esFiscal = tipo === "venta" && !!fiscal
 
   // jsPDF se carga dinámicamente (solo al generar el PDF) para no engordar el
   // bundle inicial de Nueva Venta / Devoluciones.
@@ -171,6 +175,9 @@ export async function generarFacturaPdf(
   if (esDevolucion) {
     doc.setFontSize(22)
     doc.text("DEVOLUCION", pageWidth - 20, 26, { align: "right" })
+  } else if (esCotizacion) {
+    doc.setFontSize(22)
+    doc.text("COTIZACION", pageWidth - 20, 26, { align: "right" })
   } else {
     doc.setFontSize(28)
     doc.text("FACTURA", pageWidth - 20, 28, { align: "right" })
@@ -181,6 +188,13 @@ export async function generarFacturaPdf(
   // En fiscal, el numero grande es el correlativo CAI; el FC-#### interno queda
   // fuera del comprobante oficial.
   doc.text(`#${esFiscal ? fiscal!.numeroFiscal : numeroDocumento}`, pageWidth - 20, 38, { align: "right" })
+  if (esCotizacion && params.vigenciaHasta) {
+    doc.setFontSize(9)
+    doc.setTextColor(100, 100, 100)
+    const [y, m, d] = params.vigenciaHasta.slice(0, 10).split("-")
+    doc.text(`Valida hasta: ${d}/${m}/${y}`, pageWidth - 20, 45, { align: "right" })
+    doc.setTextColor(30, 30, 30)
+  }
   if (esDevolucion && facturaReferencia) {
     doc.setFontSize(9)
     doc.setTextColor(100, 100, 100)
@@ -323,7 +337,7 @@ export async function generarFacturaPdf(
   doc.setFontSize(9)
   doc.setFont("helvetica", "bold")
   doc.setTextColor(30, 30, 30)
-  doc.text(esDevolucion ? "Datos de la empresa" : "Detalles de Pago", 20, footerY)
+  doc.text(esDevolucion || esCotizacion ? "Datos de la empresa" : "Detalles de Pago", 20, footerY)
   doc.setFont("helvetica", "normal")
   doc.setTextColor(100, 100, 100)
   doc.setFontSize(8)
@@ -342,6 +356,10 @@ export async function generarFacturaPdf(
     doc.text(`Reembolso: ${reembolsoMetodo || "N/A"}`, 110, footerY + 8)
     const motivoLinea = motivo ? `Motivo: ${motivo}` : "Nota de credito por devolucion."
     doc.text(motivoLinea.substring(0, 46), 110, footerY + 14)
+  } else if (esCotizacion) {
+    const texto = (params.condiciones || "Precios sujetos a cambio sin previo aviso al vencer la vigencia. Esta cotizacion no es un comprobante fiscal.").trim()
+    const lineasCond = doc.splitTextToSize(texto, pageWidth - 130) as string[]
+    doc.text(lineasCond.slice(0, 3), 110, footerY + 8)
   } else if (esFiscal) {
     // Modalidad por imprenta -> sus datos; autoimpresor -> leyenda.
     if (fiscal!.imprentaNombre || fiscal!.imprentaRtn || fiscal!.imprentaRegistro) {
@@ -380,7 +398,7 @@ export async function generarFacturaPdf(
   doc.text("Generado por EasyCount", pageWidth / 2, pageHeight - 8, { align: "center" })
 
   // Guardar + descarga automatica
-  const base = params.filename || `${esDevolucion ? "Devolucion" : "Factura"}_${numeroDocumento}`
+  const base = params.filename || `${esDevolucion ? "Devolucion" : esCotizacion ? "Cotizacion" : "Factura"}_${numeroDocumento}`
   const filename = base.toLowerCase().endsWith(".pdf") ? base : `${base}.pdf`
   try {
     const pdfBlob = doc.output("blob")

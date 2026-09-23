@@ -88,6 +88,7 @@ import {
   type ConfigCai,
 } from "@/lib/services/facturacion-cai"
 import { hoyISO, timestampNaiveLocal } from "@/lib/utils/fecha"
+import { leerConversionPendiente, marcarCotizacionFacturada } from "@/lib/services/cotizaciones"
 
 interface LineaVenta {
   /** Key estable para React/dedupe (las lineas de Venta Rapida no tienen id). */
@@ -104,6 +105,8 @@ interface LineaVenta {
   subtotal: number
   utilidad_linea: number
   stock_disponible: number
+  /** Precio pactado (viene de una cotización): no se re-precia al cambiar de cliente. */
+  precio_fijo?: boolean
 }
 
 let ventaRapidaSeq = 0
@@ -159,6 +162,9 @@ export default function NuevaVentaPage() {
   // Vendedor que ES el usuario logueado (si esta vinculado): se preselecciona.
   const [vendedorUsuarioId, setVendedorUsuarioId] = React.useState<number | null>(null)
   const [numeroFactura, setNumeroFactura] = React.useState("")
+  // Cotización que se está facturando (módulo Cotizaciones): al guardar la
+  // venta se marca Facturada con el id de la venta.
+  const cotizacionRef = React.useRef<{ id: number; numero: string } | null>(null)
   // Puntos de facturación (script officemart-004). "" = sin punto (flujo clásico).
   // El punto define serie interna, CAI y almacén/localización por defecto.
   const [puntos, setPuntos] = React.useState<PuntoFacturacion[]>([])
@@ -316,10 +322,12 @@ export default function NuevaVentaPage() {
         ? locs.find((l) => l.id === puntoInicial.localizacion_id)
         : undefined
       const puntoVenta = locPunto ?? locs.find((l) => l.es_punto_venta)
+      let locSeleccionada: number | null = null
       if (puntoVenta) {
         setAlmacenId(String(puntoVenta.almacen_id))
         setLocalizacionesFiltradas(locs.filter((l) => l.almacen_id === puntoVenta.almacen_id))
         setLocalizacionId(String(puntoVenta.id))
+        locSeleccionada = puntoVenta.id ?? null
       } else if (almacenesRes.data && almacenesRes.data.length === 1) {
         const defaultAlmacenId = String(almacenesRes.data[0].id)
         setAlmacenId(defaultAlmacenId)
@@ -327,7 +335,74 @@ export default function NuevaVentaPage() {
         setLocalizacionesFiltradas(filtradas)
         if (filtradas.length === 1) {
           setLocalizacionId(String(filtradas[0].id))
+          locSeleccionada = filtradas[0].id ?? null
         }
+      }
+
+      // Conversión de cotización a venta (módulo Cotizaciones): prellena
+      // cliente, ISV, descuento y líneas con el precio COTIZADO (precio_fijo:
+      // no se re-precia con la lista del cliente).
+      const conv = leerConversionPendiente()
+      if (conv) {
+        cotizacionRef.current = { id: conv.cotizacion_id, numero: conv.numero }
+        if (conv.cliente_id != null) setClienteId(String(conv.cliente_id))
+        setAplicaIsv(!!conv.aplica_impuesto)
+        setDescuentoPct(conv.descuento || 0)
+        const prods = productosRes.data || []
+        const ids = conv.lineas.map((l) => l.producto_id).filter((id): id is number => id != null)
+        let stockMap: Record<number, number> = {}
+        if (locSeleccionada != null && ids.length > 0) {
+          const r = await getStockMultipleProducts(ids, locSeleccionada)
+          stockMap = r.data || {}
+        }
+        const nuevas: LineaVenta[] = []
+        let omitidas = 0
+        for (const [idx, l] of conv.lineas.entries()) {
+          const precio = +(l.precio_unitario * (1 - (l.descuento_linea || 0) / 100)).toFixed(2)
+          const cant = Math.max(0, l.cantidad)
+          if (cant <= 0) continue
+          const prod = l.producto_id != null ? prods.find((p) => p.id === l.producto_id) : undefined
+          if (l.producto_id != null && !prod) { omitidas += 1; continue }
+          if (prod) {
+            nuevas.push({
+              _key: `p-${prod.id}`,
+              producto_id: prod.id!,
+              producto_nombre: prod.nombre,
+              producto_codigo: prod.codigo_barras,
+              cantidad: cant,
+              precio_unitario: precio,
+              costo_promedio: prod.costo_promedio || 0,
+              subtotal: +(precio * cant).toFixed(2),
+              utilidad_linea: calculateUtilidadLinea(cant, precio, prod.costo_promedio || 0),
+              stock_disponible: stockMap[prod.id!] || 0,
+              precio_fijo: true,
+            })
+          } else {
+            nuevas.push({
+              // Clave propia (no toca el contador global de Venta Rápida).
+              _key: `vr-cot-${conv.cotizacion_id}-${idx}`,
+              producto_id: null,
+              producto_nombre: l.descripcion,
+              producto_codigo: "",
+              descripcion_libre: l.descripcion,
+              cantidad: cant,
+              precio_unitario: precio,
+              costo_promedio: 0,
+              subtotal: +(precio * cant).toFixed(2),
+              utilidad_linea: +(precio * cant).toFixed(2),
+              stock_disponible: Infinity,
+              precio_fijo: true,
+            })
+          }
+        }
+        setLineas(nuevas)
+        setStockPorLocalizacion((prev) => ({ ...prev, ...stockMap }))
+        toast({
+          title: `Cotización ${conv.numero} cargada`,
+          description: omitidas > 0
+            ? `${omitidas} línea(s) con producto inexistente se omitieron. Revisa y cobra para facturar.`
+            : "Revisa las líneas y cobra para facturarla.",
+        })
       }
     } catch (err: any) {
       console.log("[NuevaVenta] excepcion cargando datos:", err)
@@ -587,7 +662,7 @@ export default function NuevaVentaPage() {
       if (prev.length === 0) return prev
       let cambio = false
       const next = prev.map((l) => {
-        if (l.producto_id == null) return l
+        if (l.producto_id == null || l.precio_fijo) return l
         const prod = productos.find((p) => p.id === l.producto_id)
         if (!prod) return l
         const precio = calcularPrecioLista(prod.precio_venta_sugerido || 0, listaAplicada, prod)
@@ -1180,6 +1255,13 @@ export default function NuevaVentaPage() {
       // la pantalla era solo una vista previa y puede haber cambiado.
       const numeroDefinitivo = data?.numero_factura || numeroFactura
       toast({ title: "Venta creada", description: `Factura ${numeroDefinitivo} generada correctamente` })
+
+      // Si la venta nació de una cotización, se marca Facturada (best-effort).
+      if (cotizacionRef.current && data?.id) {
+        const { error: cotErr } = await marcarCotizacionFacturada(cotizacionRef.current.id, data.id)
+        if (cotErr) console.warn("[NuevaVenta] no se marcó la cotización como facturada:", cotErr)
+        cotizacionRef.current = null
+      }
 
       const ventaData = {
         encabezado: {
