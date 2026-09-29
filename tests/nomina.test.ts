@@ -3,7 +3,7 @@ import {
   PARAMETROS_2026, normalizarParametros, calcularIHSS, calcularRAP, calcularISRAnual, calcularISRMensual,
   calcularHorasExtra, calcularNominaEmpleado, totalesNomina, calcularAguinaldoProporcional, diasFueraDeContrato, empleadosDelPeriodo,
 } from "@/lib/services/nomina"
-import { calcularHoras, documentosPorVencer, antiguedadAnios, diasVacacionesPorAntiguedad, mapearMarcacionesImportadas, resolverEmpleado, type Empleado, type Novedad } from "@/lib/services/rrhh"
+import { calcularSaldoVacaciones, calcularHoras, documentosPorVencer, antiguedadAnios, diasVacacionesPorAntiguedad, mapearMarcacionesImportadas, resolverEmpleado, type Empleado, type Novedad } from "@/lib/services/rrhh"
 
 const P = PARAMETROS_2026
 
@@ -128,6 +128,38 @@ describe("calcularNominaEmpleado", () => {
       emp({ id: 5, estado: "Inactivo", fecha_salida: "2026-08-10" }),
     ]
     expect(empleadosDelPeriodo(lista, MES).map((e) => e.id)).toEqual([1, 4])
+  })
+})
+
+describe("vacaciones", () => {
+  it("causa años completos + proporcional y descuenta gozados y pagados", () => {
+    const e = emp({ id: 1, fecha_ingreso: "2024-03-01", salario_mensual: 30000 })
+    // 2 años completos al 2026-09-01 (10 + 12) + 3.er año: 15 d × 184/365
+    const s = calcularSaldoVacaciones(e, [
+      nov({ id: 1, tipo: "Vacaciones", cantidad: 5 }),
+      nov({ id: 2, tipo: "Vacaciones pagadas", cantidad: 3 }),
+      nov({ id: 3, empleado_id: 9, tipo: "Vacaciones", cantidad: 99 }),
+    ], "2026-09-01")
+    expect(s.anios_completos).toBe(2)
+    expect(s.causado_exigible).toBe(22)
+    expect(s.causado_proporcional).toBeCloseTo(15 * 184 / 365, 2)
+    expect(s.gozados).toBe(5)
+    expect(s.pagados).toBe(3)
+    expect(s.saldo).toBeCloseTo(22 + 15 * 184 / 365 - 8, 2)
+    expect(s.saldo_exigible).toBe(14)
+    expect(s.salario_diario).toBe(1000)
+    expect(s.proximo_aniversario).toBe("2027-03-01")
+  })
+  it("primer año solo proporcional; sin ingreso no causa", () => {
+    expect(calcularSaldoVacaciones(emp({ fecha_ingreso: "2026-07-01" }), [], "2026-09-29").causado_exigible).toBe(0)
+    expect(calcularSaldoVacaciones(emp({ fecha_ingreso: "2026-07-01" }), [], "2026-09-29").causado_proporcional).toBeCloseTo(10 * 90 / 365, 2)
+    expect(calcularSaldoVacaciones(emp({ fecha_ingreso: null }), [], "2026-09-29").causado_total).toBe(0)
+  })
+  it("la nómina paga las vacaciones liquidadas a salario diario", () => {
+    const c = calcularNominaEmpleado(emp({ salario_mensual: 30000 }), [nov({ id: 7, tipo: "Vacaciones pagadas", cantidad: 3, gravable: true, cotizable: true })], MES, P)
+    expect(c.otros_ingresos).toBe(3000)
+    expect(c.total_devengado).toBe(33000)
+    expect(c.lineas.find((l) => l.concepto.startsWith("Vacaciones pagadas"))?.cantidad).toBe(3)
   })
 })
 

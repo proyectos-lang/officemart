@@ -87,6 +87,7 @@ export type TipoNovedad =
   | "Aguinaldo"
   | "Otro ingreso"
   | "Vacaciones"
+  | "Vacaciones pagadas"
   | "Permiso con goce"
   | "Permiso sin goce"
   | "Incapacidad"
@@ -113,6 +114,9 @@ export const TIPOS_NOVEDAD: DefTipoNovedad[] = [
   { tipo: "Aguinaldo", efecto: "ingreso", unidad: "monto", gravable: false, cotizable: false },
   { tipo: "Otro ingreso", efecto: "ingreso", unidad: "monto", gravable: true, cotizable: false },
   { tipo: "Vacaciones", efecto: "info", unidad: "dias", gravable: false, cotizable: false },
+  // Liquidación de vacaciones (días no gozados pagados en dinero): se paga a
+  // salario diario (salario mensual / 30) en la nómina y descuenta el saldo.
+  { tipo: "Vacaciones pagadas", efecto: "ingreso", unidad: "dias", gravable: true, cotizable: true },
   { tipo: "Permiso con goce", efecto: "info", unidad: "dias", gravable: false, cotizable: false },
   { tipo: "Permiso sin goce", efecto: "dias", unidad: "dias", gravable: false, cotizable: false },
   { tipo: "Incapacidad", efecto: "info", unidad: "dias", gravable: false, cotizable: false },
@@ -193,6 +197,95 @@ export function diasVacacionesPorAntiguedad(anios: number): number {
   if (anios === 2) return 12
   if (anios === 3) return 15
   return 20
+}
+
+// ==================== VACACIONES (causación y liquidación) ====================
+
+export interface SaldoVacaciones {
+  empleado_id: number
+  anios_completos: number
+  /** Días ganados por años de servicio ya cumplidos (exigibles). */
+  causado_exigible: number
+  /** Días proporcionales del año de servicio en curso. */
+  causado_proporcional: number
+  causado_total: number
+  gozados: number
+  pagados: number
+  /** causado_total − gozados − pagados (puede ser negativo si se adelantaron). */
+  saldo: number
+  /** Saldo exigible (sin el proporcional del año en curso). */
+  saldo_exigible: number
+  salario_diario: number
+  /** Valor en dinero del saldo total a salario diario. */
+  valor_saldo: number
+  /** Días que ganará al cumplir el siguiente año de servicio. */
+  dias_proximo_periodo: number
+  proximo_aniversario: string | null
+}
+
+function sumarAnios(fechaISO: string, anios: number): string {
+  const [y, m, d] = fechaISO.slice(0, 10).split("-").map(Number)
+  const bisiesto = (a: number) => (a % 4 === 0 && a % 100 !== 0) || a % 400 === 0
+  const dd = m === 2 && d === 29 && !bisiesto(y + anios) ? 28 : d
+  return `${y + anios}-${String(m).padStart(2, "0")}-${String(dd).padStart(2, "0")}`
+}
+
+function diasEntreFechas(a: string, b: string): number {
+  const [ay, am, ad] = a.slice(0, 10).split("-").map(Number)
+  const [by, bm, bd] = b.slice(0, 10).split("-").map(Number)
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86_400_000)
+}
+
+/**
+ * Causación de vacaciones (Código de Trabajo art. 346: 10/12/15/20 días por
+ * año de servicio). Suma los años completos y el proporcional del año en
+ * curso (días transcurridos / días del año de servicio), y descuenta los días
+ * gozados ("Vacaciones") y pagados ("Vacaciones pagadas"). PURA.
+ */
+export function calcularSaldoVacaciones(
+  empleado: Pick<Empleado, "id" | "fecha_ingreso" | "fecha_salida" | "salario_mensual">,
+  novedades: Pick<Novedad, "empleado_id" | "tipo" | "cantidad">[],
+  hoyISO: string
+): SaldoVacaciones {
+  const corte = empleado.fecha_salida && empleado.fecha_salida < hoyISO ? empleado.fecha_salida : hoyISO
+  const anios = antiguedadAnios(empleado.fecha_ingreso, corte)
+  let exigible = 0
+  for (let k = 1; k <= anios; k++) exigible += diasVacacionesPorAntiguedad(k)
+  let proporcional = 0
+  let proximo: string | null = null
+  const diasProximo = diasVacacionesPorAntiguedad(anios + 1)
+  if (empleado.fecha_ingreso) {
+    const inicio = sumarAnios(empleado.fecha_ingreso, anios)
+    proximo = sumarAnios(empleado.fecha_ingreso, anios + 1)
+    const largo = Math.max(1, diasEntreFechas(inicio, proximo))
+    const transcurrido = Math.max(0, Math.min(largo, diasEntreFechas(inicio, corte)))
+    proporcional = r2((diasProximo * transcurrido) / largo)
+  }
+  let gozados = 0
+  let pagados = 0
+  for (const n of novedades) {
+    if (n.empleado_id !== empleado.id) continue
+    if (n.tipo === "Vacaciones") gozados += num(n.cantidad)
+    else if (n.tipo === "Vacaciones pagadas") pagados += num(n.cantidad)
+  }
+  const causado_total = r2(exigible + proporcional)
+  const saldo = r2(causado_total - gozados - pagados)
+  const salario_diario = r2(num(empleado.salario_mensual) / 30)
+  return {
+    empleado_id: empleado.id ?? 0,
+    anios_completos: anios,
+    causado_exigible: r2(exigible),
+    causado_proporcional: proporcional,
+    causado_total,
+    gozados: r2(gozados),
+    pagados: r2(pagados),
+    saldo,
+    saldo_exigible: r2(exigible - gozados - pagados),
+    salario_diario,
+    valor_saldo: r2(Math.max(0, saldo) * salario_diario),
+    dias_proximo_periodo: diasProximo,
+    proximo_aniversario: proximo,
+  }
 }
 
 export interface FilaMarcacionImportada {
@@ -671,6 +764,47 @@ export async function crearNovedadesLote(novedades: Omit<Novedad, "id" | "emplea
   const { error } = await c.supabase.from("rrhh_novedades").insert(filas)
   if (error) return { creadas: 0, error: isMissingTable(error) ? RRHH_FEATURE_PENDING : error.message }
   return { creadas: filas.length, error: null }
+}
+
+// ==================== VACACIONES (I/O) ====================
+
+/** Saldo de vacaciones de cada empleado (o de uno) a la fecha. */
+export async function getSaldosVacaciones(opts: { empleadoId?: number | null; hoy?: string } = {}): Promise<{ data: SaldoVacaciones[]; error: string | null; pendiente?: boolean }> {
+  const hoy = opts.hoy || getHondurasTodayISODate()
+  const [eRes, nRes] = await Promise.all([getEmpleados(), getNovedades({ empleadoId: opts.empleadoId ?? null })])
+  if (eRes.error) return { data: [], error: eRes.error, pendiente: eRes.pendiente }
+  if (nRes.error) return { data: [], error: nRes.error, pendiente: nRes.pendiente }
+  const vac = nRes.data.filter((n) => n.tipo === "Vacaciones" || n.tipo === "Vacaciones pagadas")
+  const emps = eRes.data.filter((e) => opts.empleadoId == null || e.id === opts.empleadoId)
+  return { data: emps.map((e) => calcularSaldoVacaciones(e, vac, hoy)), error: null }
+}
+
+/**
+ * Registra vacaciones: "gozadas" (días de descanso, no cambian el pago) o
+ * "pagadas" (liquidación en dinero de días no gozados; se pagan en la
+ * próxima nómina a salario diario). Las pagadas no pueden exceder el saldo.
+ */
+export async function registrarVacaciones(input: { empleado_id: number; modo: "gozadas" | "pagadas"; dias: number; fecha: string; descripcion?: string | null }): Promise<{ data: Novedad | null; error: string | null }> {
+  const dias = r2(num(input.dias))
+  if (dias <= 0) return { data: null, error: "Indica los días" }
+  if (input.modo === "pagadas") {
+    const saldo = await getSaldosVacaciones({ empleadoId: input.empleado_id, hoy: input.fecha })
+    if (saldo.error) return { data: null, error: saldo.error }
+    const s = saldo.data[0]
+    if (!s) return { data: null, error: "Empleado no encontrado" }
+    if (dias > s.saldo + 0.001) return { data: null, error: `Solo hay ${s.saldo} día(s) de saldo para liquidar` }
+  }
+  const def = defNovedad(input.modo === "pagadas" ? "Vacaciones pagadas" : "Vacaciones")
+  return saveNovedad({
+    empleado_id: input.empleado_id,
+    tipo: def.tipo,
+    fecha: input.fecha,
+    cantidad: dias,
+    monto: null,
+    gravable: def.gravable,
+    cotizable: def.cotizable,
+    descripcion: (input.descripcion || "").trim() || (input.modo === "pagadas" ? "Liquidación de vacaciones" : "Vacaciones gozadas"),
+  })
 }
 
 // ==================== PARÁMETROS (versionados) ====================

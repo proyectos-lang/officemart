@@ -67,17 +67,64 @@ function netearDevoluciones(
   }
 }
 
+/**
+ * Quita el ISV de las ventas: el impuesto cobrado es un pasivo con la SAR, no
+ * un ingreso. `total_venta` lo incluye, así que ventas, utilidad bruta y neta
+ * se reducen en el ISV del período (las devoluciones ya se netean sin ISV).
+ */
+export function netearIsv(d: EstadoResultadosMensual, isv: number): EstadoResultadosMensual {
+  if (!isv) return d
+  const ventas = +(d.ventas_totales - isv).toFixed(2)
+  const utilidadBruta = +(d.utilidad_bruta - isv).toFixed(2)
+  const utilidadNeta = +(d.utilidad_neta - isv).toFixed(2)
+  return {
+    ...d,
+    ventas_totales: ventas,
+    utilidad_bruta: utilidadBruta,
+    utilidad_neta: utilidadNeta,
+    margen_bruto: ventas > 0 ? +((utilidadBruta / ventas) * 100).toFixed(2) : 0,
+    margen_neto: ventas > 0 ? +((utilidadNeta / ventas) * 100).toFixed(2) : 0,
+  }
+}
+
+/** ISV de las ventas VIGENTES del año, por mes (1–12). */
+async function getIsvPorMes(anio: number): Promise<Record<number, number>> {
+  const out: Record<number, number> = {}
+  if (!isSupabaseConfigured()) return out
+  const supabase = createClient()
+  if (!supabase) return out
+  const stamp = await getTenantStamp(supabase)
+  const { data } = await ejecutarVigentes<{ fecha_venta: string; impuesto_total: number | null }[] | null>((filtrar) => {
+    let q = supabase
+      .from('ventas_encabezado')
+      .select('fecha_venta, impuesto_total')
+      .gte('fecha_venta', `${anio}-01-01`)
+      .lte('fecha_venta', `${anio}-12-31T23:59:59`)
+    if (filtrar) q = q.is('anulada_at', null)
+    if (stamp.razon_social_id != null) q = q.eq('razon_social_id', stamp.razon_social_id)
+    return q
+  })
+  for (const v of data || []) {
+    const mes = Number(String(v.fecha_venta).slice(5, 7))
+    out[mes] = +((out[mes] || 0) + Number(v.impuesto_total || 0)).toFixed(2)
+  }
+  return out
+}
+
 export async function getEstadoResultadosMensual(anio: number, mes: number): Promise<{ data: EstadoResultadosMensual | null; error: string | null }> {
   const base = await getEstadoResultadosMensualBase(anio, mes)
   if (!base.data) return base
+
+  const isv = (await getIsvPorMes(anio).catch(() => ({} as Record<number, number>)))[mes] || 0
+  const sinIsv = netearIsv(base.data, isv)
 
   // Netea las devoluciones del periodo (factura original queda intacta).
   const dev = await getDevolucionesDelPeriodo(anio, mes).catch(
     () => ({ montoVentas: 0, montoCosto: 0, error: null })
   )
-  if ((dev.montoVentas || 0) === 0 && (dev.montoCosto || 0) === 0) return base
+  if ((dev.montoVentas || 0) === 0 && (dev.montoCosto || 0) === 0) return { data: sinIsv, error: base.error }
 
-  return { data: netearDevoluciones(base.data, dev.montoVentas, dev.montoCosto), error: base.error }
+  return { data: netearDevoluciones(sinIsv, dev.montoVentas, dev.montoCosto), error: base.error }
 }
 
 async function getEstadoResultadosMensualBase(anio: number, mes: number): Promise<{ data: EstadoResultadosMensual | null; error: string | null }> {
@@ -134,6 +181,8 @@ export async function getEstadoResultadosAnual(anio: number): Promise<{ data: Es
   const supabase = createClient()
   if (!supabase) return { data: [], error: 'Cliente no disponible' }
 
+  const isvPorMes = await getIsvPorMes(anio).catch(() => ({} as Record<number, number>))
+
   try {
     const { data, error } = await supabase
       .from('vista_estado_resultados_mensual')
@@ -146,7 +195,7 @@ export async function getEstadoResultadosAnual(anio: number): Promise<{ data: Es
       const resultados: EstadoResultadosMensual[] = []
       for (let mes = 1; mes <= 12; mes++) {
         const { data: mesData } = await getEstadoResultadosCalculado(supabase, anio, mes)
-        if (mesData) resultados.push(mesData)
+        if (mesData) resultados.push(netearIsv(mesData, isvPorMes[mes] || 0))
       }
       return { data: resultados, error: null }
     }
@@ -157,14 +206,14 @@ export async function getEstadoResultadosAnual(anio: number): Promise<{ data: Es
       (data || []).map(async (m) => {
         const { data: comisiones } = await getComisionesPeriodo(anio, m.mes)
         const utilidadNetaReal = (m.utilidad_neta || 0) - comisiones
-        return {
+        return netearIsv({
           ...m,
           comisiones_bancarias: comisiones,
           utilidad_neta: utilidadNetaReal,
           margen_neto: (m.ventas_totales || 0) > 0
             ? (utilidadNetaReal / m.ventas_totales) * 100
             : 0,
-        } as EstadoResultadosMensual
+        } as EstadoResultadosMensual, isvPorMes[m.mes] || 0)
       })
     )
 

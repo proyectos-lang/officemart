@@ -1218,9 +1218,10 @@ export async function crearVenta(
         if (p.metodo_pago === 'Efectivo') {
           // Concepto: usamos el ID de la venta (clave estable y unica).
           // Si existe numero de factura, lo agregamos como contexto.
-          const facturaTag = data.encabezado.numero_factura
-            ? ` (${data.encabezado.numero_factura})`
-            : ''
+          // Número DEFINITIVO (el que asignó el correlativo atómico al insertar),
+          // no el de vista previa que envía la pantalla.
+          const numeroDefinitivo = ventaData.numero_factura || data.encabezado.numero_factura
+          const facturaTag = numeroDefinitivo ? ` (${numeroDefinitivo})` : ''
           const r = await registrarMovimientoCaja({
             tipo: 'Ingreso_Venta',
             monto,
@@ -1247,7 +1248,7 @@ export async function crearVenta(
             cuenta_id: p.cuenta_id,
             tipo: 'Ingreso',
             monto: neto,
-            concepto: `Venta ${data.encabezado.numero_factura} (neto)`,
+            concepto: `Venta ${ventaData.numero_factura || data.encabezado.numero_factura || `#${ventaData.id}`} (neto)`,
             ref_tipo: 'venta',
             ref_id: ventaData.id,
           })

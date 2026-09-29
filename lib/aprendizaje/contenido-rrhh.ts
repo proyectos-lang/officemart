@@ -11,18 +11,20 @@ export const TUTORIALES_RRHH: TutorialModulo[] = [
       "Expediente: sube identidad, contrato, certificados… al bucket privado; con fecha de vencimiento avisa 30 días antes (banner arriba).",
       "Baja con fecha de salida: el empleado deja de entrar en nóminas posteriores y se prorratea la última; se puede reactivar.",
       "Muestra antigüedad y días de vacaciones que corresponden (10/12/15/20 según años). Exporta a Excel.",
+      "Vacaciones (ícono de palmera): causación por antigüedad (años completos + proporcional del año en curso), días gozados, días pagados y saldo en días y en lempiras; registra días gozados o liquida (paga) días no gozados, que la próxima nómina paga a salario diario.",
     ],
     queNoHace: [
       "No calcula prestaciones por despido (cesantía, preaviso) ni liquidaciones finales: eso se registra como novedades.",
       "No crea usuarios de la app: primero créalo en Configuración → Usuarios y luego lígalo aquí.",
     ],
     operaciones: [
+      { titulo: "Liquidar vacaciones no gozadas", pasos: ["RRHH → Empleados → ícono de palmera del empleado.", "Revisa el saldo causado.", "Elige «Liquidar (pagar)», los días (no más que el saldo) y la fecha; Registrar.", "Genera la nómina del período: aparece la línea «Vacaciones pagadas» por días × salario diario."] },
       { titulo: "Dar de alta un empleado", pasos: ["RRHH → Empleados → Nuevo empleado.", "Llena Personal y Laboral (salario mensual y frecuencia son la base de la nómina).", "En Pago y afiliaciones marca si cotiza IHSS/RAP y si se le retiene ISR (normalmente sí).", "Guarda y sube su identidad y contrato en el expediente."] },
     ],
     faqs: [
       { pregunta: "¿Empleado por hora?", respuesta: "Registra el salario mensual equivalente y usa novedades de ausencia/horas extra; el cálculo de horas usa salario ÷ 30 ÷ 8." },
     ],
-    keywords: ["empleado", "empleados", "colaborador", "expediente", "contrato", "identidad", "salario", "alta", "baja", "vacaciones", "antiguedad", "rrhh"],
+    keywords: ["vacaciones", "causacion de vacaciones", "liquidacion de vacaciones", "saldo de vacaciones", "empleado", "empleados", "colaborador", "expediente", "contrato", "identidad", "salario", "alta", "baja", "vacaciones", "antiguedad", "rrhh"],
   },
   {
     modulo: "Asistencia",
@@ -51,7 +53,7 @@ export const TUTORIALES_RRHH: TutorialModulo[] = [
     descripcion: "Todo lo que cambia el pago del período: horas extra (diurna, mixta, nocturna), bonos, comisiones, aguinaldos, permisos, incapacidades, ausencias, deducciones, anticipos y préstamos.",
     queHace: [
       "Cada novedad tiene empleado, tipo, fecha y horas/días o monto. Los ingresos indican si gravan ISR y si cotizan IHSS/RAP (valores por defecto según el tipo; el aguinaldo nace exento).",
-      "Ausencias y permisos sin goce descuentan días (salario ÷ 30 por día); vacaciones, permisos con goce e incapacidades son informativos.",
+      "Ausencias y permisos sin goce descuentan días (salario ÷ 30 por día); vacaciones gozadas, permisos con goce e incapacidades son informativos. «Vacaciones pagadas» (liquidación) paga días × salario diario y descuenta el saldo de vacaciones.",
       "«Generar 13.º/14.º» crea el aguinaldo proporcional por empleado activo (salario × meses trabajados en la ventana ÷ 12) como novedad exenta.",
       "Al generar la nómina, las novedades pendientes con fecha hasta el fin del período se aplican y quedan ligadas (#nómina); si la nómina se anula, se liberan.",
     ],

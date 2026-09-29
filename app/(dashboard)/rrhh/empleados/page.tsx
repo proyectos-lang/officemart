@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Users, Plus, Pencil, Search, Download, FileText, Upload, Trash2, ExternalLink, Loader2, AlertTriangle, UserX, UserCheck } from "lucide-react"
+import { Users, Plus, Pencil, Search, Download, FileText, Upload, Trash2, ExternalLink, Loader2, AlertTriangle, UserX, UserCheck, Palmtree } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,6 +25,7 @@ import { getVendedores, type Vendedor } from "@/lib/services/vendedores"
 import {
   getEmpleados, saveEmpleado, setEstadoEmpleado, getUsuariosParaVincular,
   getDocumentosEmpleado, subirDocumentoEmpleado, urlDocumentoEmpleado, eliminarDocumentoEmpleado, documentosPorVencer, antiguedadAnios, diasVacacionesPorAntiguedad,
+  getNovedades, calcularSaldoVacaciones, registrarVacaciones, deleteNovedad, type Novedad,
   TIPOS_DOCUMENTO_EMPLEADO,
   type Empleado, type EmpleadoDocumento, type TipoDocumentoEmpleado, type FrecuenciaPago, type TipoContrato, type FormaPagoEmpleado,
 } from "@/lib/services/rrhh"
@@ -51,6 +52,7 @@ export default function EmpleadosPage() {
   const [editar, setEditar] = React.useState<{ open: boolean; empleado: Empleado | null }>({ open: false, empleado: null })
   const [docsDe, setDocsDe] = React.useState<Empleado | null>(null)
   const [baja, setBaja] = React.useState<{ empleado: Empleado | null; fecha: string; saving: boolean }>({ empleado: null, fecha: hoy, saving: false })
+  const [vacDe, setVacDe] = React.useState<Empleado | null>(null)
 
   async function cargar() {
     const [eRes, dRes] = await Promise.all([getEmpleados(), getDocumentosEmpleado()])
@@ -182,6 +184,7 @@ export default function EmpleadosPage() {
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <Button variant="ghost" size="icon" className="h-8 w-8" title="Editar" onClick={() => setEditar({ open: true, empleado: e })}><Pencil className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" title="Vacaciones" onClick={() => setVacDe(e)}><Palmtree className="h-4 w-4" /></Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 relative" title="Expediente" onClick={() => setDocsDe(e)}><FileText className="h-4 w-4" />{nDocs > 0 && <span className="absolute -top-0.5 -right-0.5 text-[9px] bg-stone-700 text-white rounded-full px-1">{nDocs}</span>}</Button>
                       {e.estado === "Activo"
                         ? <Button variant="ghost" size="icon" className="h-8 w-8 text-red-700" title="Dar de baja" onClick={() => setBaja({ empleado: e, fecha: hoy, saving: false })}><UserX className="h-4 w-4" /></Button>
@@ -217,6 +220,13 @@ export default function EmpleadosPage() {
         <DialogContent className="sm:max-w-xl">
           <DialogHeader><DialogTitle>Expediente · {docsDe?.nombre}</DialogTitle><DialogDescription>Archivos en el bucket privado (identidad, contrato, certificados…). Máximo 10 MB.</DialogDescription></DialogHeader>
           {docsDe && <ExpedienteEmpleado empleado={docsDe} docs={docs.filter((d) => d.empleado_id === docsDe.id)} onChange={cargar} />}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={vacDe != null} onOpenChange={(o) => { if (!o) setVacDe(null) }}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader><DialogTitle>Vacaciones · {vacDe?.nombre}</DialogTitle><DialogDescription>Causación por antigüedad (10/12/15/20 días), días gozados y liquidación en dinero.</DialogDescription></DialogHeader>
+          {vacDe && <VacacionesEmpleado key={vacDe.id} empleado={vacDe} />}
         </DialogContent>
       </Dialog>
 
@@ -340,6 +350,95 @@ function EmpleadoForm({ inicial, vendedores, usuarios, onClose, onSaved }: { ini
         <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
         <Button onClick={guardar} disabled={saving || !e.nombre.trim()}>{saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />} Guardar</Button>
       </DialogFooter>
+    </div>
+  )
+}
+
+function VacacionesEmpleado({ empleado }: { empleado: Empleado }) {
+  const { toast } = useToast()
+  const hoy = getHondurasTodayISODate()
+  const [novedades, setNovedades] = React.useState<Novedad[]>([])
+  const [cargando, setCargando] = React.useState(true)
+  const [modo, setModo] = React.useState<"gozadas" | "pagadas">("gozadas")
+  const [dias, setDias] = React.useState("")
+  const [fecha, setFecha] = React.useState(hoy)
+  const [nota, setNota] = React.useState("")
+  const [saving, setSaving] = React.useState(false)
+
+  async function recargar() {
+    const res = await getNovedades({ empleadoId: empleado.id ?? null })
+    setNovedades(res.data.filter((n) => n.tipo === "Vacaciones" || n.tipo === "Vacaciones pagadas"))
+  }
+
+  React.useEffect(() => {
+    let activo = true
+    getNovedades({ empleadoId: empleado.id ?? null }).then((res) => {
+      if (!activo) return
+      setNovedades(res.data.filter((n) => n.tipo === "Vacaciones" || n.tipo === "Vacaciones pagadas"))
+      setCargando(false)
+    })
+    return () => {
+      activo = false
+    }
+  }, [empleado.id])
+
+  const s = calcularSaldoVacaciones(empleado, novedades, hoy)
+
+  async function registrar() {
+    if (!empleado.id) return
+    setSaving(true)
+    const res = await registrarVacaciones({ empleado_id: empleado.id, modo, dias: Number(dias) || 0, fecha, descripcion: nota })
+    setSaving(false)
+    if (res.error) return toast({ title: "No se pudo registrar", description: res.error, variant: "destructive" })
+    toast({ title: modo === "pagadas" ? "Liquidación registrada" : "Vacaciones registradas", description: modo === "pagadas" ? "Se pagará en la próxima nómina." : undefined })
+    setDias("")
+    setNota("")
+    recargar()
+  }
+
+  async function eliminar(n: Novedad) {
+    if (!n.id || !window.confirm("¿Eliminar este registro de vacaciones?")) return
+    const res = await deleteNovedad(n.id)
+    if (!res.success) return toast({ title: "No se pudo eliminar", description: res.error ?? "", variant: "destructive" })
+    recargar()
+  }
+
+  if (!empleado.fecha_ingreso) return <p className="text-sm text-amber-700">El empleado no tiene fecha de ingreso: edítalo para calcular la causación.</p>
+  if (cargando) return <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Spinner /> Calculando…</div>
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+        <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Causado</p><p className="font-semibold">{s.causado_total} d</p><p className="text-[11px] text-muted-foreground">{s.causado_exigible} exigible + {s.causado_proporcional} proporcional</p></div>
+        <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Gozados</p><p className="font-semibold">{s.gozados} d</p></div>
+        <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Pagados</p><p className="font-semibold">{s.pagados} d</p></div>
+        <div className={`rounded-md border p-2 ${s.saldo < 0 ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}><p className="text-xs text-muted-foreground">Saldo</p><p className="font-semibold">{s.saldo} d</p><p className="text-[11px] text-muted-foreground">{formatCurrency(s.valor_saldo)}</p></div>
+      </div>
+      <p className="text-xs text-muted-foreground">{s.anios_completos} año(s) completos · salario diario {formatCurrency(s.salario_diario)} · al cumplir el próximo año ({s.proximo_aniversario ? formatHondurasDate(s.proximo_aniversario) : "—"}) gana {s.dias_proximo_periodo} días.</p>
+      <div className="rounded-md border p-3 space-y-2 bg-stone-50">
+        <div className="grid gap-2 sm:grid-cols-[150px_90px_150px]">
+          <Select value={modo} onValueChange={(v) => setModo(v as "gozadas" | "pagadas")}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="gozadas">Días gozados</SelectItem><SelectItem value="pagadas">Liquidar (pagar)</SelectItem></SelectContent>
+          </Select>
+          <Input type="number" min={0} step="0.5" placeholder="Días" value={dias} onChange={(e) => setDias(e.target.value)} />
+          <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        </div>
+        <div className="flex gap-2">
+          <Input placeholder="Nota (opcional)" value={nota} onChange={(e) => setNota(e.target.value)} />
+          <Button size="sm" onClick={registrar} disabled={saving || !(Number(dias) > 0)}>{saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />} Registrar</Button>
+        </div>
+        {modo === "pagadas" && <p className="text-xs text-muted-foreground">Crea la novedad «Vacaciones pagadas»: la próxima nómina paga {Number(dias) > 0 ? formatCurrency((Number(dias) || 0) * s.salario_diario) : "los días"} (días × salario diario), gravable y cotizable.</p>}
+      </div>
+      <div className="space-y-1 max-h-[35vh] overflow-y-auto">
+        {novedades.map((n) => (
+          <div key={n.id} className="flex items-center justify-between text-sm border-b py-1.5">
+            <span>{formatHondurasDate(n.fecha)} · <Badge variant={n.tipo === "Vacaciones pagadas" ? "secondary" : "outline"}>{n.tipo === "Vacaciones pagadas" ? "Pagadas" : "Gozadas"}</Badge> {n.cantidad} d{n.descripcion ? ` · ${n.descripcion}` : ""}{n.nomina_id ? <span className="text-xs text-muted-foreground"> · nómina #{n.nomina_id}</span> : null}</span>
+            {!n.nomina_id && <Button variant="ghost" size="icon" className="h-7 w-7 text-red-700" onClick={() => eliminar(n)}><Trash2 className="h-3.5 w-3.5" /></Button>}
+          </div>
+        ))}
+        {novedades.length === 0 && <p className="text-sm text-muted-foreground text-center py-3">Sin registros de vacaciones.</p>}
+      </div>
     </div>
   )
 }

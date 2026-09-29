@@ -225,7 +225,7 @@ export default function EstadoResultadosPage() {
     // Financial Table
     const tableData = [
       ['INGRESOS', '', ''],
-      ['Ventas Totales', '', formatCurrency(datos.ventas_totales)],
+      ['Ventas netas (sin ISV)', '', formatCurrency(datos.ventas_totales)],
       ['', '', ''],
       ['COSTOS', '', ''],
       ['Costo de Mercancia Vendida (CMV)', '', `(${formatCurrency(datos.costo_mercancia_vendida)})`],
@@ -479,7 +479,7 @@ export default function EstadoResultadosPage() {
                 <div className="divide-y divide-stone-100">
                   {/* INGRESOS */}
                   <FinancialLine label="INGRESOS" isHeader />
-                  <FinancialLine label="Ventas Totales" value={datos.ventas_totales} indent={1} />
+                  <FinancialLine label="Ventas netas (sin ISV)" value={datos.ventas_totales} indent={1} />
                   
                   {/* COSTOS */}
                   <FinancialLine label="COSTOS" isHeader />

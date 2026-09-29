@@ -262,11 +262,12 @@ export function calcularNominaEmpleado(emp: Empleado, novedades: Novedad[], peri
       horasExtraCotizables = horasExtraCotizables && n.cotizable
       horasExtraGravables = horasExtraGravables && n.gravable
     } else if (def.efecto === "ingreso") {
-      const monto = r2(num(n.monto))
+      // Ingresos por días (liquidación de vacaciones): días × salario diario.
+      const monto = def.unidad === "dias" ? r2(num(n.cantidad) * (salarioMensual / diasMes)) : r2(num(n.monto))
       otrosIngresos += monto
       if (n.cotizable) extrasCotizables += monto
       if (n.gravable) extrasGravables += monto
-      lineas.push({ concepto: `${n.tipo}${n.descripcion ? ` · ${n.descripcion}` : ""}`, tipo: "ingreso", monto, novedad_id: n.id ?? null })
+      lineas.push({ concepto: `${n.tipo}${n.descripcion ? ` · ${n.descripcion}` : ""}`, tipo: "ingreso", cantidad: def.unidad === "dias" ? num(n.cantidad) : null, monto, novedad_id: n.id ?? null })
     } else if (def.efecto === "deduccion") {
       const monto = r2(num(n.monto))
       otrasDeducciones += monto
