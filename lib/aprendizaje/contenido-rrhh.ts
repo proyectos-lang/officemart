@@ -78,6 +78,7 @@ export const TUTORIALES_RRHH: TutorialModulo[] = [
       "Por empleado: salario del período, horas extra, otros ingresos, devengado; IHSS y RAP del empleado sobre el equivalente mensual (con techos), ISR proyectando el salario ×12 menos IHSS y L 40,000 de gastos médicos (los extras gravables tributan a la tasa marginal), otras deducciones, neto y aportes patronales. Despliega la fila para ver cada línea.",
       "Borrador → Recalcular (si cambiaste empleados/novedades/parámetros) o Aprobar. Aprobada → Pagar: crea el gasto «Sueldos y salarios» por el neto (pagado desde caja o banco) y «Cargas sociales y retenciones» pendiente de pago a IHSS/RAP/SAR.",
       "Anular (borrador o aprobada) libera las novedades. Planilla Excel y boletas PDF (una página por empleado con firma de recibido).",
+      "Nómina complementaria: si ya existe una nómina vigente del mismo tipo y período, generar otra incluye solo a los empleados que faltan (altas a mitad de mes u omisiones) y se marca «Complementaria».",
     ],
     queNoHace: [
       "No genera archivos bancarios de pago masivo ni la planilla oficial del IHSS/SAR (usa la planilla Excel).",

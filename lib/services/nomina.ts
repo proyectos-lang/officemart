@@ -476,13 +476,34 @@ export function empleadosDelPeriodo(empleados: Empleado[], periodo: PeriodoNomin
   })
 }
 
-async function calcularCorrida(periodo: PeriodoNomina): Promise<{ calculos: CalculoEmpleado[]; parametrosId: number | null; error: string | null }> {
+/**
+ * Empleados que YA están en otra nómina vigente (no anulada) del mismo tipo y
+ * período. Una segunda corrida del período es COMPLEMENTARIA: solo incluye a
+ * los que faltan (altas a mitad de mes, omisiones).
+ */
+async function empleadosYaIncluidos(periodo: PeriodoNomina, excluirNominaId?: number): Promise<{ ids: Set<number>; hayOtras: boolean; error: string | null }> {
+  const supabase = createClient()
+  if (!supabase) return { ids: new Set(), hayOtras: false, error: "Cliente no disponible" }
+  let q = supabase.from("rrhh_nominas").select("id").eq("tipo", periodo.tipo).eq("periodo_desde", periodo.desde).eq("periodo_hasta", periodo.hasta).neq("estado", "Anulada")
+  if (excluirNominaId != null) q = q.neq("id", excluirNominaId)
+  const { data, error } = await q
+  if (error) return { ids: new Set(), hayOtras: false, error: isMissingTable(error) ? RRHH_FEATURE_PENDING : error.message }
+  const nominaIds = ((data || []) as { id: number }[]).map((n) => n.id)
+  if (nominaIds.length === 0) return { ids: new Set(), hayOtras: false, error: null }
+  const det = await supabase.from("rrhh_nominas_detalle").select("empleado_id").in("nomina_id", nominaIds)
+  if (det.error) return { ids: new Set(), hayOtras: true, error: det.error.message }
+  return { ids: new Set(((det.data || []) as { empleado_id: number }[]).map((d) => Number(d.empleado_id))), hayOtras: true, error: null }
+}
+
+async function calcularCorrida(periodo: PeriodoNomina, excluir: Set<number> = new Set()): Promise<{ calculos: CalculoEmpleado[]; parametrosId: number | null; error: string | null }> {
   const [empRes, novRes, parRes] = await Promise.all([getEmpleados(), getNovedades({ hasta: periodo.hasta, sinAplicar: true }), getParametrosVigentes(periodo.hasta)])
   if (empRes.error) return { calculos: [], parametrosId: null, error: empRes.error }
   if (novRes.error) return { calculos: [], parametrosId: null, error: novRes.error }
   const p = normalizarParametros(parRes.data?.parametros ?? null)
-  const empleados = empleadosDelPeriodo(empRes.data, periodo)
-  if (empleados.length === 0) return { calculos: [], parametrosId: null, error: `No hay empleados activos con pago ${periodo.tipo.toLowerCase()} en el período.` }
+  const empleados = empleadosDelPeriodo(empRes.data, periodo).filter((e) => e.id == null || !excluir.has(e.id))
+  if (empleados.length === 0) {
+    return { calculos: [], parametrosId: null, error: excluir.size > 0 ? "Todos los empleados de este período ya están en una nómina vigente." : `No hay empleados activos con pago ${periodo.tipo.toLowerCase()} en el período.` }
+  }
   const calculos = empleados.map((e) => calcularNominaEmpleado(e, novRes.data, periodo, p))
   return { calculos, parametrosId: parRes.data?.id ?? null, error: null }
 }
@@ -494,13 +515,11 @@ export async function generarNomina(input: { tipo: FrecuenciaPago; desde: string
   if (!isValidStamp(stamp)) return { data: null, error: SESION_INVALIDA_ERROR }
   if (!input.desde || !input.hasta || input.desde > input.hasta) return { data: null, error: "Período inválido" }
 
-  // Evitar dos corridas vigentes del mismo período/tipo.
-  const dup = await supabase.from("rrhh_nominas").select("id").eq("tipo", input.tipo).eq("periodo_desde", input.desde).eq("periodo_hasta", input.hasta).neq("estado", "Anulada").limit(1)
-  if (dup.error && isMissingTable(dup.error)) return { data: null, error: RRHH_FEATURE_PENDING }
-  if ((dup.data || []).length > 0) return { data: null, error: "Ya existe una nómina vigente para ese período; anúlala primero." }
-
   const periodo: PeriodoNomina = { tipo: input.tipo, desde: input.desde, hasta: input.hasta }
-  const { calculos, parametrosId, error } = await calcularCorrida(periodo)
+  // Si ya hay nómina vigente del período, esta es COMPLEMENTARIA (solo los que faltan).
+  const previos = await empleadosYaIncluidos(periodo)
+  if (previos.error) return { data: null, error: previos.error }
+  const { calculos, parametrosId, error } = await calcularCorrida(periodo, previos.ids)
   if (error) return { data: null, error }
   const tot = totalesNomina(calculos)
   const ahora = getHondurasNowISO()
@@ -509,7 +528,7 @@ export async function generarNomina(input: { tipo: FrecuenciaPago; desde: string
     .insert({
       razon_social_id: stamp.razon_social_id, usuario: stamp.usuario, tipo: input.tipo, periodo_desde: input.desde, periodo_hasta: input.hasta,
       fecha_pago: input.fecha_pago || null, estado: "Borrador", total_devengado: tot.devengado, total_deducciones: tot.deducciones, total_neto: tot.neto,
-      total_patronal: tot.patronal, parametros_id: parametrosId, notas: (input.notas || "").trim() || null, created_at: ahora,
+      total_patronal: tot.patronal, parametros_id: parametrosId, notas: [previos.hayOtras ? "Complementaria" : "", (input.notas || "").trim()].filter(Boolean).join(" · ") || null, created_at: ahora,
     })
     .select("*")
     .single()
@@ -549,7 +568,10 @@ export async function recalcularNomina(id: number): Promise<{ data: Nomina | nul
   if (n.estado !== "Borrador") return { data: null, error: "Solo se recalcula un borrador" }
   await supabase.from("rrhh_novedades").update({ nomina_id: null }).eq("nomina_id", id)
   await supabase.from("rrhh_nominas_detalle").delete().eq("nomina_id", id)
-  const { calculos, parametrosId, error } = await calcularCorrida({ tipo: n.tipo, desde: n.periodo_desde, hasta: n.periodo_hasta })
+  const periodoN: PeriodoNomina = { tipo: n.tipo, desde: n.periodo_desde, hasta: n.periodo_hasta }
+  const otras = await empleadosYaIncluidos(periodoN, id)
+  if (otras.error) return { data: null, error: otras.error }
+  const { calculos, parametrosId, error } = await calcularCorrida(periodoN, otras.ids)
   if (error) return { data: null, error }
   const err = await guardarDetalle(id, calculos, stamp.razon_social_id as number)
   if (err) return { data: null, error: err }
