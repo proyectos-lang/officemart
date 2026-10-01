@@ -84,7 +84,7 @@ function isMissingTable(err: { code?: string; message?: string } | null): boolea
   return (
     err.code === "42P01" ||
     err.code === "PGRST205" ||
-    msg.includes("schema cache") ||
+    (msg.includes("schema cache") && !msg.includes("relationship")) ||
     /relation .*cotizaciones.* does not exist/.test(msg)
   )
 }

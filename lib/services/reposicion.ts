@@ -115,7 +115,7 @@ export async function getReordenes(): Promise<{ data: ReordenConfig[]; error: st
   const { data, error } = await supabase.from("productos_reorden").select("*")
   if (error) {
     const msg = (error.message || "").toLowerCase()
-    if (error.code === "42P01" || error.code === "PGRST205" || msg.includes("schema cache") || /does not exist/.test(msg)) return { data: [], error: null, pendiente: true }
+    if (error.code === "42P01" || error.code === "PGRST205" || (msg.includes("schema cache") && !msg.includes("relationship")) || /does not exist/.test(msg)) return { data: [], error: null, pendiente: true }
     return { data: [], error: error.message, pendiente: false }
   }
   return {
@@ -148,7 +148,7 @@ export async function saveReorden(cfg: ReordenConfig): Promise<{ error: string |
   const { data: existente, error: selErr } = await q.maybeSingle()
   if (selErr) {
     const msg = (selErr.message || "").toLowerCase()
-    if (selErr.code === "42P01" || msg.includes("schema cache") || /does not exist/.test(msg)) return { error: REPOSICION_FEATURE_PENDING }
+    if (selErr.code === "42P01" || (msg.includes("schema cache") && !msg.includes("relationship")) || /does not exist/.test(msg)) return { error: REPOSICION_FEATURE_PENDING }
     return { error: selErr.message }
   }
   if (existente?.id != null) {

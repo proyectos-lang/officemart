@@ -379,7 +379,7 @@ export function resolverEmpleado(texto: string, empleados: Empleado[]): Empleado
 function isMissingTable(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   const msg = (err.message || "").toLowerCase()
-  return err.code === "42P01" || err.code === "PGRST205" || /relation .*(empleados|rrhh_).* does not exist/.test(msg) || msg.includes("could not find the table") || msg.includes("schema cache") || msg.includes("bucket not found")
+  return err.code === "42P01" || err.code === "PGRST205" || /relation .*(empleados|rrhh_).* does not exist/.test(msg) || msg.includes("could not find the table") || (msg.includes("schema cache") && !msg.includes("relationship")) || msg.includes("bucket not found")
 }
 
 const blank = (v: unknown) => (typeof v === "string" && v.trim() === "" ? null : v)

@@ -205,7 +205,7 @@ export function totalesReporte(lineas: LineaReporte[]): { venta: number; cantida
 function isMissingView(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   const msg = (err.message || "").toLowerCase()
-  return err.code === "42P01" || err.code === "PGRST205" || msg.includes("schema cache") || msg.includes("vista_ventas_reporte")
+  return err.code === "42P01" || err.code === "PGRST205" || (msg.includes("schema cache") && !msg.includes("relationship")) || msg.includes("vista_ventas_reporte")
 }
 
 const PAGE = 1000

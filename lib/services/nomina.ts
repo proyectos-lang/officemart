@@ -389,7 +389,7 @@ export interface NominaDetalle extends Omit<CalculoEmpleado, "novedad_ids"> {
 function isMissingTable(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   const msg = (err.message || "").toLowerCase()
-  return err.code === "42P01" || err.code === "PGRST205" || msg.includes("could not find the table") || msg.includes("schema cache")
+  return err.code === "42P01" || err.code === "PGRST205" || msg.includes("could not find the table") || (msg.includes("schema cache") && !msg.includes("relationship"))
 }
 
 function mapNomina(r: Record<string, unknown>): Nomina {

@@ -56,7 +56,7 @@ export interface FiscalSnapshot {
 function isMissingTable(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   const msg = (err.message || "").toLowerCase()
-  return err.code === "42P01" || err.code === "PGRST205" || msg.includes("does not exist") || msg.includes("schema cache")
+  return err.code === "42P01" || err.code === "PGRST205" || msg.includes("does not exist") || (msg.includes("schema cache") && !msg.includes("relationship"))
 }
 
 // ==================== FUNCIONES PURAS ====================

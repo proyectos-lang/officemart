@@ -56,7 +56,7 @@ export interface ConsumoEtapa {
 function isMissingTable(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   const msg = (err.message || "").toLowerCase()
-  return err.code === "42P01" || err.code === "PGRST205" || msg.includes("schema cache") || /relation .* does not exist/.test(msg)
+  return err.code === "42P01" || err.code === "PGRST205" || (msg.includes("schema cache") && !msg.includes("relationship")) || /relation .* does not exist/.test(msg)
 }
 
 function r2(n: number): number {

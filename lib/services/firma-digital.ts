@@ -164,7 +164,7 @@ export function fechaMasDiasISO(iso: string, dias: number): string {
 function isMissing(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   const msg = (err.message || "").toLowerCase()
-  return err.code === "42P01" || err.code === "PGRST205" || /relation .*documentos_firm.* does not exist/.test(msg) || msg.includes("could not find the table") || msg.includes("schema cache") || msg.includes("bucket not found")
+  return err.code === "42P01" || err.code === "PGRST205" || /relation .*documentos_firm.* does not exist/.test(msg) || msg.includes("could not find the table") || (msg.includes("schema cache") && !msg.includes("relationship")) || msg.includes("bucket not found")
 }
 
 function mapFirma(r: Record<string, unknown>): FirmaDocumento {
