@@ -324,10 +324,107 @@ export interface EtapaAbierta {
   antiguedad_min: number
 }
 
+/** Indicadores de lead time de punta a punta (órdenes terminadas). */
+export interface SemanaLeadTime {
+  /** Lunes de la semana (YYYY-MM-DD). */
+  semana: string
+  terminadas: number
+  lead_promedio_h: number
+  /** % entregadas en o antes de la fecha comprometida (null si ninguna tenía fecha). */
+  cumplimiento_pct: number | null
+}
+
+export interface LeadTimes {
+  /** Órdenes con todas sus etapas entregadas (en el rango, por fecha de la última entrega). */
+  terminadas: number
+  lead_promedio_h: number
+  lead_p90_h: number
+  lead_max_h: number
+  a_tiempo: number
+  con_fecha: number
+  cumplimiento_pct: number | null
+  /** Órdenes en piso: con alguna etapa recibida o en proceso. */
+  wip: number
+  semanas: SemanaLeadTime[]
+}
+
 export interface ReporteFlujo {
   tiempos: TiempoOperacion[]
   cargas: CargaOperacion[]
   abiertas: EtapaAbierta[]
+  leadTimes: LeadTimes
+}
+
+const LEAD_VACIO: LeadTimes = { terminadas: 0, lead_promedio_h: 0, lead_p90_h: 0, lead_max_h: 0, a_tiempo: 0, con_fecha: 0, cumplimiento_pct: null, wip: 0, semanas: [] }
+
+function lunesDe(fechaISO: string): string {
+  const [y, m, d] = fechaISO.slice(0, 10).split("-").map(Number)
+  const t = new Date(Date.UTC(y, m - 1, d))
+  const dia = (t.getUTCDay() + 6) % 7 // lunes = 0
+  t.setUTCDate(t.getUTCDate() - dia)
+  return t.toISOString().slice(0, 10)
+}
+
+const r1 = (n: number) => Math.round(n * 10) / 10
+
+/**
+ * Lead time de punta a punta por orden = última entrega − primera recepción
+ * de sus etapas (horas). Cumplimiento = entregada (día de la última entrega)
+ * en o antes de `fecha_objetivo`. WIP = órdenes con alguna etapa recibida o
+ * en proceso. Rango opcional por fecha de la última entrega. PURA.
+ */
+export function calcularLeadTimes(
+  etapas: { orden_id: number; estado: string; fecha_recepcion: string | null; fecha_entrega: string | null }[],
+  fechaObjetivo: Map<number, string | null>,
+  rango?: { desde?: string; hasta?: string }
+): LeadTimes {
+  const porOrden = new Map<number, typeof etapas>()
+  for (const e of etapas) porOrden.set(e.orden_id, [...(porOrden.get(e.orden_id) || []), e])
+  const terminadas: { lead_h: number; fin: string; a_tiempo: boolean | null }[] = []
+  let wip = 0
+  for (const [ordenId, es] of porOrden) {
+    if (es.some((e) => e.estado === "Recibida" || e.estado === "En Proceso")) wip += 1
+    if (es.length === 0 || es.some((e) => e.estado !== "Entregada")) continue
+    const inicios = es.map((e) => e.fecha_recepcion).filter((x): x is string => !!x).sort()
+    const fines = es.map((e) => e.fecha_entrega).filter((x): x is string => !!x).sort()
+    if (inicios.length === 0 || fines.length === 0) continue
+    const fin = fines[fines.length - 1]
+    const dia = fin.slice(0, 10)
+    if (rango?.desde && dia < rango.desde) continue
+    if (rango?.hasta && dia > rango.hasta) continue
+    const lead = (Date.parse(fin) - Date.parse(inicios[0])) / 3_600_000
+    const obj = fechaObjetivo.get(ordenId) ?? null
+    terminadas.push({ lead_h: Math.max(0, lead), fin, a_tiempo: obj ? dia <= obj : null })
+  }
+  if (terminadas.length === 0) return { ...LEAD_VACIO, wip }
+  const leads = terminadas.map((t) => t.lead_h).sort((a, b) => a - b)
+  const conFecha = terminadas.filter((t) => t.a_tiempo !== null)
+  const aTiempo = conFecha.filter((t) => t.a_tiempo).length
+  const semMap = new Map<string, { n: number; total: number; conFecha: number; aTiempo: number }>()
+  for (const t of terminadas) {
+    const s = lunesDe(t.fin)
+    const cur = semMap.get(s) || { n: 0, total: 0, conFecha: 0, aTiempo: 0 }
+    cur.n += 1
+    cur.total += t.lead_h
+    if (t.a_tiempo !== null) {
+      cur.conFecha += 1
+      if (t.a_tiempo) cur.aTiempo += 1
+    }
+    semMap.set(s, cur)
+  }
+  return {
+    terminadas: terminadas.length,
+    lead_promedio_h: r1(leads.reduce((a, b) => a + b, 0) / leads.length),
+    lead_p90_h: r1(leads[Math.min(leads.length - 1, Math.ceil(leads.length * 0.9) - 1)]),
+    lead_max_h: r1(leads[leads.length - 1]),
+    a_tiempo: aTiempo,
+    con_fecha: conFecha.length,
+    cumplimiento_pct: conFecha.length ? r1((aTiempo / conFecha.length) * 100) : null,
+    wip,
+    semanas: [...semMap.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([semana, v]) => ({ semana, terminadas: v.n, lead_promedio_h: r1(v.total / v.n), cumplimiento_pct: v.conFecha ? r1((v.aTiempo / v.conFecha) * 100) : null })),
+  }
 }
 
 /** Diferencia en minutos entre dos ISO HN-as-UTC (o real). Null si falta alguno. */
@@ -348,7 +445,7 @@ export async function getReporteFlujo(opts?: {
   desde?: string
   hasta?: string
 }): Promise<{ data: ReporteFlujo; error: string | null }> {
-  const empty: ReporteFlujo = { tiempos: [], cargas: [], abiertas: [] }
+  const empty: ReporteFlujo = { tiempos: [], cargas: [], abiertas: [], leadTimes: LEAD_VACIO }
   if (!isSupabaseConfigured()) return { data: empty, error: null }
   const supabase = createClient()
   if (!supabase) return { data: empty, error: "Cliente no disponible" }
@@ -404,20 +501,52 @@ export async function getReporteFlujo(opts?: {
     .map(([nombre, ordenes]) => ({ nombre, ordenes }))
     .sort((a, b) => b.ordenes - a.ordenes)
 
-  // Nombres de producto para las etapas abiertas.
+  // Nombres para las etapas abiertas: producto (OP) o descripción (OT libre).
   const ordenIds = Array.from(new Set(abiertasRaw.map((a) => a.orden_id)))
   const nombreProd = new Map<number, string>()
   if (ordenIds.length > 0) {
-    const { data: ords } = await supabase.from("produccion_ordenes").select("id, producto_id").in("id", ordenIds)
-    const prodIds = Array.from(new Set((ords || []).map((o) => Number(o.producto_id))))
+    let ords: Record<string, unknown>[] = []
+    const conTipo = await supabase.from("produccion_ordenes").select("id, producto_id, tipo, descripcion").in("id", ordenIds)
+    if (!conTipo.error) ords = (conTipo.data || []) as Record<string, unknown>[]
+    else ords = ((await supabase.from("produccion_ordenes").select("id, producto_id").in("id", ordenIds)).data || []) as Record<string, unknown>[]
     const ordProd = new Map<number, number>()
-    for (const o of ords || []) ordProd.set(Number(o.id), Number(o.producto_id))
+    for (const o of ords) {
+      if (o.tipo === "Trabajo" || Number(o.producto_id) === 0) nombreProd.set(Number(o.id), String(o.descripcion || `Orden de trabajo #${o.id}`))
+      else ordProd.set(Number(o.id), Number(o.producto_id))
+    }
+    const prodIds = Array.from(new Set(ordProd.values()))
     if (prodIds.length > 0) {
       const { data: prods } = await supabase.from("productos").select("id, nombre").in("id", prodIds)
       const pn = new Map<number, string>()
       for (const p of prods || []) pn.set(Number(p.id), String(p.nombre || ""))
       for (const [oid, pid] of ordProd) nombreProd.set(oid, pn.get(pid) || `Producto #${pid}`)
     }
+  }
+
+  // Lead time de punta a punta: todas las etapas (sin filtro de recepción) de
+  // las órdenes con flujo; el rango aplica a la fecha de la última entrega.
+  let leadTimes = LEAD_VACIO
+  {
+    const todas: { orden_id: number; estado: string; fecha_recepcion: string | null; fecha_entrega: string | null }[] = []
+    for (let from = 0; from < 100_000; from += 1000) {
+      const { data: pag, error: pErr } = await supabase
+        .from("produccion_orden_etapas")
+        .select("orden_id, estado, fecha_recepcion, fecha_entrega")
+        .range(from, from + 999)
+      if (pErr) break
+      todas.push(...((pag || []) as typeof todas))
+      if ((pag || []).length < 1000) break
+    }
+    const ids = [...new Set(todas.map((e) => Number(e.orden_id)))]
+    const objetivo = new Map<number, string | null>()
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data: os } = await supabase.from("produccion_ordenes").select("id, fecha_objetivo, estado").in("id", ids.slice(i, i + 200))
+      for (const o of (os || []) as { id: number; fecha_objetivo: string | null; estado: string }[]) {
+        if (o.estado === "Cancelada") continue
+        objetivo.set(Number(o.id), o.fecha_objetivo)
+      }
+    }
+    leadTimes = calcularLeadTimes(todas.filter((e) => objetivo.has(Number(e.orden_id))).map((e) => ({ ...e, orden_id: Number(e.orden_id) })), objetivo, { desde: opts?.desde, hasta: opts?.hasta })
   }
 
   const abiertas: EtapaAbierta[] = abiertasRaw
@@ -428,7 +557,7 @@ export async function getReporteFlujo(opts?: {
     }))
     .sort((a, b) => b.antiguedad_min - a.antiguedad_min)
 
-  return { data: { tiempos, cargas, abiertas }, error: null }
+  return { data: { tiempos, cargas, abiertas, leadTimes }, error: null }
 }
 
 /** Marca una etapa como Recibida (llegó el trabajo a esta operación). */

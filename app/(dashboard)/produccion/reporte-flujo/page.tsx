@@ -80,12 +80,52 @@ export default function ReporteFlujoPage() {
           <BarChart3 className="h-10 w-10 mx-auto mb-2 opacity-40" /> Sin datos de flujo en este rango. Inicia el flujo de algunas órdenes y avánzalas por sus etapas.
         </div>
       ) : (
+        <>
+        {/* Indicadores de lead time de punta a punta */}
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+          <Card className="rounded-xl border-stone-200"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Órdenes terminadas</p><p className="text-2xl font-semibold">{data!.leadTimes.terminadas}</p><p className="text-[11px] text-muted-foreground">en el rango</p></CardContent></Card>
+          <Card className="rounded-xl border-stone-200"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Lead time promedio</p><p className="text-2xl font-semibold">{fmtMin(data!.leadTimes.lead_promedio_h * 60)}</p><p className="text-[11px] text-muted-foreground">primera recepción → última entrega</p></CardContent></Card>
+          <Card className="rounded-xl border-stone-200"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Lead time P90</p><p className="text-2xl font-semibold">{fmtMin(data!.leadTimes.lead_p90_h * 60)}</p><p className="text-[11px] text-muted-foreground">máximo {fmtMin(data!.leadTimes.lead_max_h * 60)}</p></CardContent></Card>
+          <Card className={`rounded-xl ${data!.leadTimes.cumplimiento_pct != null && data!.leadTimes.cumplimiento_pct < 80 ? "border-amber-300 bg-amber-50/40" : "border-stone-200"}`}><CardContent className="p-4"><p className="text-xs text-muted-foreground">Entregas a tiempo</p><p className="text-2xl font-semibold">{data!.leadTimes.cumplimiento_pct == null ? "—" : `${data!.leadTimes.cumplimiento_pct}%`}</p><p className="text-[11px] text-muted-foreground">{data!.leadTimes.a_tiempo} de {data!.leadTimes.con_fecha} con fecha comprometida</p></CardContent></Card>
+          <Card className="rounded-xl border-stone-200"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Órdenes en piso (WIP)</p><p className="text-2xl font-semibold">{data!.leadTimes.wip}</p><p className="text-[11px] text-muted-foreground">con alguna etapa en curso</p></CardContent></Card>
+        </div>
+
+        {data!.leadTimes.semanas.length > 0 && (
+          <Card className="rounded-xl border-stone-200">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="text-base flex items-center gap-2"><CalendarRange className="h-4 w-4 text-stone-600" /> Tendencia semanal</CardTitle>
+              <CardDescription className="text-xs">Órdenes terminadas por semana (lunes de inicio), lead time promedio y cumplimiento de la fecha comprometida.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="rounded-lg border border-stone-200 overflow-x-auto">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Semana del</TableHead><TableHead className="text-right">Terminadas</TableHead><TableHead className="text-right">Lead time promedio</TableHead><TableHead className="text-right">A tiempo</TableHead><TableHead className="w-[35%]">Volumen</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {data!.leadTimes.semanas.map((s) => {
+                      const max = Math.max(...data!.leadTimes.semanas.map((x) => x.terminadas), 1)
+                      return (
+                        <TableRow key={s.semana}>
+                          <TableCell>{s.semana.split("-").reverse().join("/")}</TableCell>
+                          <TableCell className="text-right">{s.terminadas}</TableCell>
+                          <TableCell className="text-right">{fmtMin(s.lead_promedio_h * 60)}</TableCell>
+                          <TableCell className={`text-right ${s.cumplimiento_pct != null && s.cumplimiento_pct < 80 ? "text-amber-700" : ""}`}>{s.cumplimiento_pct == null ? "—" : `${s.cumplimiento_pct}%`}</TableCell>
+                          <TableCell><div className="h-2 rounded bg-stone-100"><div className="h-2 rounded bg-stone-600" style={{ width: `${(s.terminadas / max) * 100}%` }} /></div></TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid gap-4 lg:grid-cols-2">
           {/* Tiempo por operación */}
           <Card className="rounded-xl border-stone-200">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4 text-stone-600" /> Tiempo por operación</CardTitle>
-              <CardDescription className="text-xs">Promedio recepción→entrega de las etapas ya entregadas (en el rango).</CardDescription>
+              <CardDescription className="text-xs">Promedio recepción→entrega de las etapas ya entregadas (en el rango). Incluye la espera en cola: la etapa se recibe cuando la anterior entrega.</CardDescription>
             </CardHeader>
             <CardContent className="p-4 pt-0">
               {(data?.tiempos.length ?? 0) === 0 ? (
@@ -183,6 +223,7 @@ export default function ReporteFlujoPage() {
             </CardContent>
           </Card>
         </div>
+        </>
       )}
     </div>
   )

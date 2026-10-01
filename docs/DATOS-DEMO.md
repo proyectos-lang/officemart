@@ -82,6 +82,28 @@ En la demo se puede liquidar en vivo lo pendiente de Muebles y Oficinas.
 
 En la demo se puede terminar de contar la #2 y cerrarla para ver los ajustes, o mostrar que no se puede vender ni trasladar desde ese almacén mientras está abierta.
 
+## Producción por áreas: simulación de piso
+
+Cargada con `pnpm test:integracion simulacion-piso` sobre las operaciones Diseño → Impresión → Corte → Entrega. Son 121 órdenes de trabajo del 24 de agosto a hoy, de 11 tipos (lonas, tarjetas, volantes, talonarios, stickers, rotulación y otros). El 30 % llega con arte del cliente y no pasa por Diseño, el 20 % es urgente (prometido a 1 día hábil) y algunas tienen cambios del cliente.
+
+| Indicador (Producción → Reporte de flujo, 24/08 a hoy) | Valor |
+|---|---|
+| Órdenes terminadas | 97 |
+| Lead time promedio / P90 | 79.9 h / 142.5 h (horas de reloj, incluye noches) |
+| Entregas a tiempo | 67 % |
+| Órdenes en piso (WIP) | 24: Impresión 10, Entrega 6, Corte 5, Diseño 3 |
+
+| Semana | Terminadas | Lead time promedio | A tiempo |
+|---|---|---|---|
+| 24/08 | 12 | 41.7 h | 83.3 % |
+| 31/08 | 18 | 75.9 h | 83.3 % |
+| 07/09 | 18 | 59.0 h | 77.8 % |
+| 14/09 | 12 | 72.0 h | 75.0 % |
+| 21/09 | 26 | 100.6 h | 53.8 % |
+| 28/09 | 11 | 121.5 h | 27.3 % |
+
+**Historia para la demo**: el pico de pedidos de fin de mes (últimos 10 días hábiles) saturó la única impresora. La cola se acumula en Impresión (10 órdenes), el lead time sube semana a semana y el cumplimiento cae del 83 % al 27 %. En Producción → Flujo (vista Tablero) se ven las tarjetas en cada estación con su antigüedad y el semáforo de fecha comprometida. En el Reporte de flujo, «Etapas en curso» muestra las más trabadas.
+
 ## Notas
 
 - La empresa también conserva los datos de la validación anterior, con prefijo **VAL**: un producto, una venta y una empleada con su nómina de septiembre.

@@ -102,9 +102,11 @@ export const TUTORIALES_PRODUCCION: TutorialModulo[] = [
     modulo: "Reporte de Flujo",
     titulo: "Reporte de Flujo",
     descripcion:
-      "Los indicadores del flujo por etapas: cuánto tarda cada operación, cuánta carga tiene cada una y qué órdenes están trabadas (cuellos de botella).",
+      "Los indicadores del flujo por etapas: lead time de punta a punta, cumplimiento de la fecha comprometida, cuánto tarda cada operación, cuánta carga tiene cada una y qué órdenes están trabadas (cuellos de botella).",
     queHace: [
-      "Tiempo por operación: promedio (y máximo) que tarda cada etapa desde que se recibe hasta que se entrega, en el rango de fechas elegido.",
+      "Lead time: órdenes terminadas en el rango, lead time promedio y P90 (de la primera recepción a la última entrega), entregas a tiempo frente a la fecha comprometida y órdenes en piso (WIP).",
+      "Tendencia semanal: órdenes terminadas, lead time promedio y % a tiempo por semana, para ver si el piso mejora o se atrasa.",
+      "Tiempo por operación: promedio (y máximo) que tarda cada etapa desde que se recibe hasta que se entrega, en el rango de fechas elegido. Incluye la espera en cola, porque la etapa se recibe cuando la anterior entrega.",
       "Carga actual por operación: cuántas órdenes están AHORA en cada etapa (etapas no entregadas).",
       "Etapas en curso: lista de etapas recibidas/en proceso sin entregar, ordenadas por antigüedad — para ver dónde se atasca el trabajo.",
       "El rango de fechas afecta los tiempos por operación; la carga y las etapas en curso son del estado actual.",
@@ -125,12 +127,17 @@ export const TUTORIALES_PRODUCCION: TutorialModulo[] = [
     ],
     faqs: [
       {
+        pregunta: "¿Cómo se calcula el lead time y el % a tiempo?",
+        respuesta:
+          "Para cada orden con todas sus etapas entregadas: desde la primera recepción hasta la última entrega, en horas de reloj (incluye noches y fines de semana). Es «a tiempo» si la última entrega cae en o antes de la fecha comprometida de la orden; las órdenes sin fecha no cuentan para el %. El rango filtra por el día de la última entrega.",
+      },
+      {
         pregunta: "¿Por qué una operación no aparece en 'tiempo por operación'?",
         respuesta:
           "Solo aparecen operaciones con al menos una etapa ENTREGADA en el rango (necesita recepción y entrega para medir el tiempo). Las que aún no se entregan salen en 'carga' y 'etapas en curso'.",
       },
     ],
-    keywords: ["reporte", "flujo", "tiempos", "cuello de botella", "carga", "operaciones", "etapas", "produccion", "atascada", "trabada", "indicadores"],
+    keywords: ["reporte", "flujo", "tiempos", "cuello de botella", "carga", "operaciones", "etapas", "produccion", "atascada", "trabada", "indicadores", "lead time", "tiempo de entrega", "cumplimiento", "a tiempo", "wip", "trabajo en proceso", "control de piso"],
   },
   {
     modulo: "Materiales",
