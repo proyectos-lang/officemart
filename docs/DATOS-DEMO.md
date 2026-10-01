@@ -56,6 +56,32 @@ Septiembre tiene menos nómina porque la segunda quincena quedó **en borrador**
 10. **RRHH → Nómina**: julio y agosto pagadas; septiembre con la primera quincena pagada, la mensual como complementaria y la segunda quincena en borrador para aprobar y pagar en vivo; boletas PDF y planilla Excel.
 11. **Finanzas → Balance y Conciliación bancaria**: saldos de banco, CxC, inventario y CxP.
 
+## Consignación y toma física
+
+Cargados con `pnpm test:integracion datos-consignacion-toma`.
+
+**Consignación** (Inventario → Consignación)
+
+| Dato | Detalle |
+|---|---|
+| Localizaciones en consignación | «Consignación TecnoImport» (impresoras, proyectores, laptops) y «Consignación Muebles y Oficinas» (pizarras, mesas de reuniones), dentro del almacén Principal |
+| Entrada de mercancía | 1 de agosto, a costo pactado: 12 impresoras, 5 proyectores, 6 laptops, 15 pizarras y 3 mesas |
+| Ventas desde consignación | 9 facturas entre el 5 de agosto y el 26 de septiembre |
+| Liquidación hecha | #1 a TecnoImport por L 47 500 (ventas de agosto), con su orden de compra a crédito a 30 días |
+| Pendiente de liquidar | TecnoImport L 37 900 (septiembre) y Muebles y Oficinas L 19 950 (agosto y septiembre) |
+| Valoración | Propio L 395 764 y consignado L 136 500 (23 unidades) por separado |
+
+En la demo se puede liquidar en vivo lo pendiente de Muebles y Oficinas.
+
+**Toma física** (Inventario → Toma física)
+
+| Toma | Estado | Detalle |
+|---|---|---|
+| #1 Bodega San Pedro Sula | Cerrada | 8 líneas contadas; faltan 3 resmas carta y 1 memoria USB (L 374) y sobran 2 libras de café (L 190); 3 ajustes aplicados al inventario |
+| #2 Sala de exhibición Tegucigalpa | Abierta | 6 líneas, 3 contadas (faltan 2 mouse); el almacén está congelado hasta cerrarla o cancelarla |
+
+En la demo se puede terminar de contar la #2 y cerrarla para ver los ajustes, o mostrar que no se puede vender ni trasladar desde ese almacén mientras está abierta.
+
 ## Notas
 
 - La empresa también conserva los datos de la validación anterior, con prefijo **VAL**: un producto, una venta y una empleada con su nómina de septiembre.

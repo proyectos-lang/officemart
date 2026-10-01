@@ -1392,11 +1392,17 @@ export async function saveLocalizacion(
       }
 
       const { id, ...locData } = localizacion
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('localizaciones')
         .insert({ ...locData, ...stamp })
         .select()
         .single()
+      // La tabla puede no tener `descripcion` (no existe en todos los esquemas):
+      // se guarda la localización sin ella en vez de fallar.
+      if (error && /descripcion/i.test(error.message || '')) {
+        const { descripcion: _d, ...sinDescripcion } = locData
+        ;({ data, error } = await supabase.from('localizaciones').insert({ ...sinDescripcion, ...stamp }).select().single())
+      }
 
       if (error) return { data: null, error: error.message }
       return { data, error: null }
@@ -1404,12 +1410,16 @@ export async function saveLocalizacion(
       // Update: no tocamos razon_social_id ni usuario originales
       // (aislamiento e historial del creador).
       const { id, ...locData } = localizacion
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('localizaciones')
         .update(locData)
         .eq('id', localizacion.id)
         .select()
         .single()
+      if (error && /descripcion/i.test(error.message || '')) {
+        const { descripcion: _d, ...sinDescripcion } = locData
+        ;({ data, error } = await supabase.from('localizaciones').update(sinDescripcion).eq('id', localizacion.id).select().single())
+      }
 
       if (error) return { data: null, error: error.message }
       return { data, error: null }
