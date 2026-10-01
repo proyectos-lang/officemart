@@ -2,6 +2,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from "@/lib/services/tenant-stamp"
 import { registrarAuditoria } from "@/lib/services/auditoria"
 import { getHondurasNowISO } from "@/lib/utils/honduras-time"
+import { adjuntarRelaciones } from "@/lib/services/relaciones"
 
 // ==================== TIPOS ====================
 
@@ -54,7 +55,7 @@ export async function getReclamos(
 
   let q = supabase
     .from("ventas_reclamos")
-    .select("*, ventas_encabezado:venta_id (numero_factura, total_venta), clientes:cliente_id (nombre)")
+    .select("*")
     .order("created_at", { ascending: false })
     .limit(opts.limit ?? 300)
   if (opts.estado && opts.estado !== "todos") q = q.eq("estado", opts.estado)
@@ -65,7 +66,12 @@ export async function getReclamos(
     if (isMissingTable(error)) return { data: [], error: RECLAMOS_FEATURE_PENDING }
     return { data: [], error: error.message }
   }
-  const rows = (data || []).map((r: Record<string, unknown>) => {
+  // Sin llaves foráneas declaradas: se unen venta y cliente por id.
+  const conRel = await adjuntarRelaciones(supabase, (data || []) as Record<string, unknown>[], [
+    { campo: "venta_id", tabla: "ventas_encabezado", columnas: "numero_factura, total_venta", como: "ventas_encabezado" },
+    { campo: "cliente_id", tabla: "clientes", columnas: "nombre", como: "clientes" },
+  ])
+  const rows = conRel.map((r: Record<string, unknown>) => {
     const ve = Array.isArray(r.ventas_encabezado) ? r.ventas_encabezado[0] : r.ventas_encabezado
     const cli = Array.isArray(r.clientes) ? r.clientes[0] : r.clientes
     return {

@@ -3,6 +3,7 @@ import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from "@/lib/servi
 import { registrarAuditoria } from "@/lib/services/auditoria"
 import { createCompra } from "@/lib/services/compras"
 import { getHondurasTodayISODate } from "@/lib/utils/honduras-time"
+import { adjuntarRelacion } from "@/lib/services/relaciones"
 
 /**
  * Consignación (script officemart-012): una localización marcada como
@@ -330,13 +331,14 @@ export async function getLiquidacionesConsignacion(): Promise<{ data: Liquidacio
   if (!isSupabaseConfigured()) return { data: [], error: null, pendiente: false }
   const supabase = createClient()
   if (!supabase) return { data: [], error: "Cliente no disponible", pendiente: false }
-  const { data, error } = await supabase.from("consignacion_liquidaciones").select("*, proveedores (nombre)").order("created_at", { ascending: false }).limit(300)
+  const { data, error } = await supabase.from("consignacion_liquidaciones").select("*").order("created_at", { ascending: false }).limit(300)
   if (error) {
     if (isMissingTable(error)) return { data: [], error: null, pendiente: true }
     return { data: [], error: error.message, pendiente: false }
   }
+  const conProveedor = await adjuntarRelacion(supabase, (data || []) as Record<string, unknown>[], { campo: "proveedor_id", tabla: "proveedores", columnas: "nombre", como: "proveedores" })
   return {
-    data: (data || []).map((r: Record<string, unknown>) => {
+    data: conProveedor.map((r: Record<string, unknown>) => {
       const p = Array.isArray(r.proveedores) ? r.proveedores[0] : r.proveedores
       return {
         id: Number(r.id),

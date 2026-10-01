@@ -7,6 +7,7 @@ import { registrarAuditoria } from "@/lib/services/auditoria"
 import { assertInventarioNoCongelado } from "@/lib/services/inventario-candado"
 import { getHondurasNowISO, getHondurasTodayISODate } from "@/lib/utils/honduras-time"
 import { getDetallesCompra, type CompraDetalle, type CompraEncabezado } from "@/lib/services/compras"
+import { adjuntarRelacion } from "@/lib/services/relaciones"
 
 /**
  * Recepciones parciales, backorder y cuentas por pagar por orden de compra
@@ -232,12 +233,13 @@ export async function getRecepcionesCompra(
   }
   const recepciones = (data || []).map((r) => normRecepcion(r as Record<string, unknown>))
   if (recepciones.length > 0) {
-    const { data: det } = await supabase
+    const { data: detPlano } = await supabase
       .from("compras_recepciones_detalle")
-      .select("*, productos (nombre)")
+      .select("*")
       .in("recepcion_id", recepciones.map((r) => r.id))
+    const det = await adjuntarRelacion(supabase, (detPlano || []) as Record<string, unknown>[], { campo: "producto_id", tabla: "productos", columnas: "nombre", como: "productos" })
     const porRec = new Map<number, RecepcionLinea[]>()
-    for (const d of (det || []) as Record<string, unknown>[]) {
+    for (const d of det) {
       const prod = Array.isArray(d.productos) ? d.productos[0] : d.productos
       const lista = porRec.get(Number(d.recepcion_id)) || []
       lista.push({

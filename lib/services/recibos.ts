@@ -6,6 +6,7 @@ import { registrarMovimientoCuenta, recalcCadenaSaldoCuenta } from "@/lib/servic
 import { emitirCorrelativo, SERIES } from "@/lib/services/correlativos"
 import { registrarAuditoria } from "@/lib/services/auditoria"
 import { getHondurasNowISO } from "@/lib/utils/honduras-time"
+import { adjuntarRelacion } from "@/lib/services/relaciones"
 import { ejecutarVigentes } from "@/lib/services/ventas-filtros"
 
 // ==================== TIPOS ====================
@@ -329,7 +330,7 @@ export async function getRecibos(
 
   let q = supabase
     .from("recibos_cobro")
-    .select("*, clientes:cliente_id (nombre)")
+    .select("*")
     .order("fecha", { ascending: false })
     .order("id", { ascending: false })
     .limit(opts.limit ?? 300)
@@ -339,7 +340,8 @@ export async function getRecibos(
     if (isMissingTable(error)) return { data: [], error: RECIBOS_FEATURE_PENDING }
     return { data: [], error: error.message }
   }
-  const recibos = (data || []).map((r: Record<string, unknown>) => {
+  const conCliente = await adjuntarRelacion(supabase, (data || []) as Record<string, unknown>[], { campo: "cliente_id", tabla: "clientes", columnas: "nombre", como: "clientes" })
+  const recibos = conCliente.map((r: Record<string, unknown>) => {
     const cli = Array.isArray(r.clientes) ? r.clientes[0] : r.clientes
     return { ...(r as unknown as ReciboCobro), cliente_nombre: (cli as { nombre?: string } | null)?.nombre || "" }
   })

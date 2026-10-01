@@ -5,6 +5,7 @@ import { registrarAuditoria } from "@/lib/services/auditoria"
 import { registrarMovimientoCuenta, type CuentaMovimiento } from "@/lib/services/cuentas"
 import { createGasto } from "@/lib/services/gastos"
 import { getHondurasNowISO } from "@/lib/utils/honduras-time"
+import { adjuntarRelacion } from "@/lib/services/relaciones"
 
 /**
  * Conciliación bancaria (script officemart-014).
@@ -469,19 +470,15 @@ export async function getExtractos(cuentaId?: number | null): Promise<{ data: Ex
   if (!isSupabaseConfigured()) return { data: [], error: null, pendiente: false }
   const supabase = createClient()
   if (!supabase) return { data: [], error: "Cliente no disponible", pendiente: false }
-  let q = supabase.from("bancos_extractos").select("*, cuentas_config:cuenta_id (nombre)").order("periodo_hasta", { ascending: false }).limit(200)
+  let q = supabase.from("bancos_extractos").select("*").order("periodo_hasta", { ascending: false }).limit(200)
   if (cuentaId != null) q = q.eq("cuenta_id", cuentaId)
-  let res = await q
-  if (res.error && !isMissingTable(res.error)) {
-    let q2 = supabase.from("bancos_extractos").select("*").order("periodo_hasta", { ascending: false }).limit(200)
-    if (cuentaId != null) q2 = q2.eq("cuenta_id", cuentaId)
-    res = (await q2) as typeof res
-  }
+  const res = await q
   if (res.error) {
     if (isMissingTable(res.error)) return { data: [], error: null, pendiente: true }
     return { data: [], error: res.error.message, pendiente: false }
   }
-  return { data: (res.data || []).map((r) => normExtracto(r as Record<string, unknown>)), error: null, pendiente: false }
+  const conCuenta = await adjuntarRelacion(supabase, (res.data || []) as Record<string, unknown>[], { campo: "cuenta_id", tabla: "cuentas_config", columnas: "nombre", como: "cuentas_config" })
+  return { data: conCuenta.map((r) => normExtracto(r)), error: null, pendiente: false }
 }
 
 export async function getExtracto(id: number): Promise<{ data: { extracto: Extracto; lineas: LineaExtracto[] } | null; error: string | null }> {

@@ -4,6 +4,7 @@ import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from "@/lib/servi
 import { registrarAuditoria } from "@/lib/services/auditoria"
 import { procesarAjusteInventario, type AjusteLineaInput } from "@/lib/services/inventario"
 import { getHondurasNowISO } from "@/lib/utils/honduras-time"
+import { adjuntarRelacion } from "@/lib/services/relaciones"
 
 /**
  * Toma física de inventario con congelamiento (script officemart-013).
@@ -176,13 +177,13 @@ export async function getTomas(): Promise<{ data: TomaFisica[]; error: string | 
   if (!isSupabaseConfigured()) return { data: [], error: null, pendiente: false }
   const supabase = createClient()
   if (!supabase) return { data: [], error: "Cliente no disponible", pendiente: false }
-  let res = await supabase.from("tomas_fisicas").select("*, almacenes (nombre)").order("created_at", { ascending: false }).limit(200)
-  if (res.error && !isMissingTable(res.error)) res = await supabase.from("tomas_fisicas").select("*").order("created_at", { ascending: false }).limit(200)
+  const res = await supabase.from("tomas_fisicas").select("*").order("created_at", { ascending: false }).limit(200)
   if (res.error) {
     if (isMissingTable(res.error)) return { data: [], error: null, pendiente: true }
     return { data: [], error: res.error.message, pendiente: false }
   }
-  return { data: (res.data || []).map((r) => normToma(r as Record<string, unknown>)), error: null, pendiente: false }
+  const conAlmacen = await adjuntarRelacion(supabase, (res.data || []) as Record<string, unknown>[], { campo: "almacen_id", tabla: "almacenes", columnas: "nombre", como: "almacenes" })
+  return { data: conAlmacen.map((r) => normToma(r)), error: null, pendiente: false }
 }
 
 export async function getTomaDetalle(tomaId: number): Promise<{ data: TomaDetalle[]; error: string | null }> {

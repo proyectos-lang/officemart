@@ -5,6 +5,7 @@ import { ajustarStock } from "@/lib/services/stock"
 import { registrarAuditoria } from "@/lib/services/auditoria"
 import { assertAlmacenesNoCongelados } from "@/lib/services/inventario-candado"
 import { getHondurasNowISO } from "@/lib/utils/honduras-time"
+import { adjuntarRelaciones } from "@/lib/services/relaciones"
 
 /**
  * Consumo de materiales o productos por etapa de una orden de producción /
@@ -127,17 +128,20 @@ export async function getConsumosOrden(ordenId: number): Promise<{ data: Consumo
   if (!supabase) return { data: [], error: "Cliente no disponible", pendiente: false }
   const { data, error } = await supabase
     .from("produccion_etapa_consumos")
-    .select("*, materiales (nombre), productos (nombre), produccion_orden_etapas (nombre)")
+    .select("*")
     .eq("orden_id", ordenId)
     .order("fecha", { ascending: true })
   if (error) {
     if (isMissingTable(error)) return { data: [], error: null, pendiente: true }
-    // Sin FKs declaradas el embed falla: reintento plano.
-    const plano = await supabase.from("produccion_etapa_consumos").select("*").eq("orden_id", ordenId).order("fecha", { ascending: true })
-    if (plano.error) return { data: [], error: plano.error.message, pendiente: false }
-    return { data: (plano.data || []).map((r) => norm(r as Record<string, unknown>)), error: null, pendiente: false }
+    return { data: [], error: error.message, pendiente: false }
   }
-  return { data: (data || []).map((r) => norm(r as Record<string, unknown>)), error: null, pendiente: false }
+  // Sin FKs declaradas: material, producto y etapa se unen por id.
+  const conRel = await adjuntarRelaciones(supabase, (data || []) as Record<string, unknown>[], [
+    { campo: "material_id", tabla: "materiales", columnas: "nombre", como: "materiales" },
+    { campo: "producto_id", tabla: "productos", columnas: "nombre", como: "productos" },
+    { campo: "etapa_id", tabla: "produccion_orden_etapas", columnas: "nombre", como: "produccion_orden_etapas" },
+  ])
+  return { data: conRel.map((r) => norm(r)), error: null, pendiente: false }
 }
 
 function uno<T>(v: T | T[] | null | undefined): T | null {

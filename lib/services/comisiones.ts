@@ -3,6 +3,7 @@ import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from "@/lib/servi
 import { registrarAuditoria } from "@/lib/services/auditoria"
 import { getConceptosGasto, createConceptoGasto, createGasto } from "@/lib/services/gastos"
 import { getHondurasTodayISODate } from "@/lib/utils/honduras-time"
+import { adjuntarRelacion } from "@/lib/services/relaciones"
 
 /**
  * Comisiones de vendedores (script officemart-011).
@@ -504,13 +505,14 @@ export async function getLiquidaciones(): Promise<{ data: Liquidacion[]; error: 
   if (!isSupabaseConfigured()) return { data: [], error: null, pendiente: false }
   const supabase = createClient()
   if (!supabase) return { data: [], error: "Cliente no disponible", pendiente: false }
-  const { data, error } = await supabase.from("comisiones_liquidaciones").select("*, vendedores (nombre)").order("created_at", { ascending: false }).limit(300)
+  const { data, error } = await supabase.from("comisiones_liquidaciones").select("*").order("created_at", { ascending: false }).limit(300)
   if (error) {
     if (isMissingTable(error)) return { data: [], error: null, pendiente: true }
     return { data: [], error: error.message, pendiente: false }
   }
+  const conVendedor = await adjuntarRelacion(supabase, (data || []) as Record<string, unknown>[], { campo: "vendedor_id", tabla: "vendedores", columnas: "nombre", como: "vendedores" })
   return {
-    data: (data || []).map((r: Record<string, unknown>) => {
+    data: conVendedor.map((r: Record<string, unknown>) => {
       const v = Array.isArray(r.vendedores) ? r.vendedores[0] : r.vendedores
       return {
         id: Number(r.id),

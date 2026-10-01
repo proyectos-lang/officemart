@@ -1,5 +1,6 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
 import { ejecutarVigentes } from "@/lib/services/ventas-filtros"
+import { adjuntarRelacion } from "@/lib/services/relaciones"
 
 /**
  * Estado de cuenta de cliente (Fase 2.5). Sin tabla propia: se arma desde
@@ -265,10 +266,11 @@ export async function getEstadoCuentaCliente(
       let pagosData: Record<string, unknown>[] = []
       const conRecibo = await supabase
         .from("pagos_ventas")
-        .select("venta_id, fecha_pago, monto, metodo_pago, recibo_id, recibos_cobro:recibo_id (numero_recibo)")
+        .select("venta_id, fecha_pago, monto, metodo_pago, recibo_id")
         .in("venta_id", lote)
       if (!conRecibo.error) {
-        pagosData = (conRecibo.data || []) as Record<string, unknown>[]
+        // pagos_ventas.recibo_id no tiene llave foránea: se une por id.
+        pagosData = await adjuntarRelacion(supabase, (conRecibo.data || []) as Record<string, unknown>[], { campo: "recibo_id", tabla: "recibos_cobro", columnas: "numero_recibo", como: "recibos_cobro" })
       } else {
         const simple = await supabase.from("pagos_ventas").select("venta_id, fecha_pago, monto, metodo_pago").in("venta_id", lote)
         pagosData = (simple.data || []) as Record<string, unknown>[]
