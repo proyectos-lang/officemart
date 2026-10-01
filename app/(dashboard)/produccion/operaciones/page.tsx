@@ -22,6 +22,7 @@ import {
   getOperaciones, crearOperacion, actualizarOperacion, eliminarOperacion, reordenarOperaciones,
   type OperacionProduccion,
 } from "@/lib/services/produccion-operaciones"
+import { getOperacionesStd, setEstandarOperacion, type OperacionStd } from "@/lib/services/produccion-tracking"
 
 export default function OperacionesProduccionPage() {
   const { toast } = useToast()
@@ -34,35 +35,54 @@ export default function OperacionesProduccionPage() {
   const [nombre, setNombre] = React.useState("")
   const [descripcion, setDescripcion] = React.useState("")
   const [activo, setActivo] = React.useState(true)
+  const [estandar, setEstandar] = React.useState("")
+  const [estandares, setEstandares] = React.useState<Map<number, OperacionStd>>(new Map())
   const [saving, setSaving] = React.useState(false)
   const [aEliminar, setAEliminar] = React.useState<OperacionProduccion | null>(null)
 
   const cargar = React.useCallback(async () => {
     setLoading(true)
-    const { data, error } = await getOperaciones()
+    const [{ data, error }, std] = await Promise.all([getOperaciones(), getOperacionesStd()])
     if (error) toast({ title: "Error", description: error, variant: "destructive" })
     setOperaciones(data)
+    setEstandares(new Map(std.data.map((o) => [o.id, o])))
     setLoading(false)
   }, [toast])
   React.useEffect(() => { cargar() }, [cargar])
 
   function abrirNuevo() {
-    setEditando(null); setNombre(""); setDescripcion(""); setActivo(true)
+    setEditando(null); setNombre(""); setDescripcion(""); setActivo(true); setEstandar("")
     setDialogOpen(true)
   }
   function abrirEditar(o: OperacionProduccion) {
     setEditando(o); setNombre(o.nombre); setDescripcion(o.descripcion || ""); setActivo(o.activo)
+    const st = estandares.get(o.id)
+    setEstandar(st?.configurado ? String(st.estandar_h) : "")
     setDialogOpen(true)
   }
 
   async function guardar() {
     if (!nombre.trim()) { toast({ title: "Falta el nombre", variant: "destructive" }); return }
     setSaving(true)
-    const res = editando
-      ? await actualizarOperacion(editando.id, { nombre, descripcion, activo })
-      : await crearOperacion({ nombre, descripcion })
+    let opId: number | undefined
+    let errorGuardar: string | null
+    if (editando) {
+      errorGuardar = (await actualizarOperacion(editando.id, { nombre, descripcion, activo })).error
+      opId = editando.id
+    } else {
+      const creada = await crearOperacion({ nombre, descripcion })
+      errorGuardar = creada.error
+      opId = creada.data?.id
+    }
+    if (errorGuardar) { setSaving(false); toast({ title: "Error", description: errorGuardar, variant: "destructive" }); return }
+    // Tiempo estándar (script officemart-019): base de la planeación.
+    const previo = editando ? estandares.get(editando.id) : undefined
+    const horas = estandar.trim() === "" ? null : Number(estandar)
+    if (opId != null && (horas != null || previo?.configurado)) {
+      const st = await setEstandarOperacion(opId, horas)
+      if (st.error) toast({ title: "No se guardó el tiempo estándar", description: st.error, variant: "destructive" })
+    }
     setSaving(false)
-    if (res.error) { toast({ title: "Error", description: res.error, variant: "destructive" }); return }
     toast({ title: editando ? "Operación actualizada" : "Operación creada" })
     setDialogOpen(false)
     cargar()
@@ -139,6 +159,7 @@ export default function OperacionesProduccionPage() {
                       {!o.activo && <Badge variant="outline" className="text-[10px]">Inactiva</Badge>}
                     </div>
                     {o.descripcion && <p className="text-xs text-stone-500 truncate">{o.descripcion}</p>}
+                    {estandares.get(o.id) && <p className="text-[11px] text-stone-400">Estándar: {estandares.get(o.id)!.estandar_h} h laborales{estandares.get(o.id)!.configurado ? "" : " (por defecto)"}</p>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => abrirEditar(o)} title="Editar"><Pencil className="h-4 w-4" /></Button>
@@ -171,6 +192,11 @@ export default function OperacionesProduccionPage() {
             <div className="grid gap-2">
               <Label htmlFor="op-desc">Descripción <span className="text-stone-400 text-xs font-normal">(opcional)</span></Label>
               <Textarea id="op-desc" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={2} placeholder="Qué se hace en esta etapa" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="op-std">Tiempo estándar <span className="text-stone-400 text-xs font-normal">(horas laborales, opcional)</span></Label>
+              <Input id="op-std" type="number" min={0} step="0.25" value={estandar} onChange={(e) => setEstandar(e.target.value)} placeholder={`Por defecto ${estandares.get(editando?.id ?? -1)?.estandar_h ?? 4} h`} />
+              <p className="text-[11px] text-stone-500">Duración normal de la etapa sin esperas. Se usa para planear las fechas de cada orden (Mastertracking).</p>
             </div>
             {editando && (
               <div className="flex items-center justify-between rounded-lg border border-stone-200 p-3">

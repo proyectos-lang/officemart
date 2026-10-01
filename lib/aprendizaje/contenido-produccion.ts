@@ -16,6 +16,7 @@ export const TUTORIALES_PRODUCCION: TutorialModulo[] = [
       "Las operaciones tienen un ORDEN (secuencia): así se define por dónde empieza y termina el trabajo de cada orden de producción.",
       "Reordena las etapas con las flechas de cada fila (subir/bajar).",
       "Puedes desactivar una operación sin borrarla: las inactivas no se usan en las órdenes nuevas.",
+      "Tiempo estándar (horas laborales): duración normal de la etapa sin esperas. Con él se planean las fechas de cada etapa de las órdenes (Mastertracking). Si no lo defines se usa un valor por defecto según el nombre (Diseño 3 h, Impresión 2.5 h, Corte 2 h, Entrega 4 h, otras 4 h).",
     ],
     queNoHace: [
       "No procesa producción por sí solo: aquí solo defines el flujo. El avance de cada orden por sus etapas se hace en la vista de flujo/órdenes.",
@@ -138,6 +139,32 @@ export const TUTORIALES_PRODUCCION: TutorialModulo[] = [
       },
     ],
     keywords: ["reporte", "flujo", "tiempos", "cuello de botella", "carga", "operaciones", "etapas", "produccion", "atascada", "trabada", "indicadores", "lead time", "tiempo de entrega", "cumplimiento", "a tiempo", "wip", "trabajo en proceso", "control de piso"],
+  },
+  {
+    modulo: "Mastertracking",
+    titulo: "Mastertracking (seguimiento de órdenes)",
+    descripcion:
+      "Cada orden de producción o de trabajo con su recorrido por etapas: fechas planeadas contra reales, etapa actual, lead time, atraso contra la fecha comprometida y semáforo, en tabla o en línea de tiempo.",
+    queHace: [
+      "Planeación: a cada etapa se le asigna un inicio y fin planeado encadenando los tiempos estándar de las operaciones (horas laborales: L–V 8–17, sábado 8–12) desde que entra la orden. Las órdenes nuevas se planean solas; «Generar planeación» planea las que aún no tienen plan.",
+      "Tabla: código, cliente y trabajo, creación, compromiso, recorrido por etapas (gris pendiente, ámbar recibida, azul en proceso, verde entregada), etapa actual, lead time y semáforo. Al desplegar la fila se ven plan y real de cada etapa, responsable, horas reales y desvío contra el plan.",
+      "Línea de tiempo: barra planeada (contorno) y real (sólida) por etapa, línea roja de «ahora» y bandera de la fecha comprometida; ventanas de 1 a 6 semanas.",
+      "Semáforo: rojo si la fecha comprometida ya pasó o se entregó tarde; ámbar si vence hoy o lo que falta (según estándares) no alcanza; verde si va o llegó a tiempo; gris sin fecha.",
+      "Filtros: búsqueda, estado (en piso, terminadas, sin flujo), etapa actual, semáforo, cliente, tipo (OT/OP), solo urgentes y rango de creación. Exporta a Excel una fila por orden y etapa.",
+    ],
+    queNoHace: [
+      "No mueve etapas: el avance se registra en Flujo de Producción.",
+      "No replanifica por capacidad: el plan asume que cada etapa empieza al terminar la anterior, sin colas; la diferencia con lo real muestra la espera.",
+    ],
+    operaciones: [
+      { titulo: "Revisar el piso cada mañana", pasos: ["Producción → Mastertracking con el filtro «En piso».", "Filtra el semáforo «Atrasadas» y luego «En riesgo» para priorizar.", "Despliega una orden para ver en qué etapa se atrasó contra el plan y quién la tiene."] },
+      { titulo: "Ajustar la planeación", pasos: ["Define el tiempo estándar de cada operación en Operaciones de Producción.", "Vuelve a Mastertracking y usa «Generar planeación» para las órdenes sin plan."] },
+    ],
+    faqs: [
+      { pregunta: "¿Qué significa el asterisco en el plan?", respuesta: "Que el plan se calculó al vuelo porque aún no está guardado como línea base (falta aplicar el script officemart-019 o generar la planeación)." },
+      { pregunta: "¿Lead time en horas de reloj o laborales?", respuesta: "De reloj (incluye noches y fines de semana), desde que entra la orden hasta la última entrega o hasta ahora si sigue en piso. El plan usa horas laborales." },
+    ],
+    keywords: ["mastertracking", "seguimiento de ordenes", "tracking", "gantt", "linea de tiempo", "planeacion", "plan vs real", "atraso", "semaforo", "etapa actual", "fecha comprometida", "lead time"],
   },
   {
     modulo: "Materiales",
@@ -475,8 +502,11 @@ export const TUTORIALES_PRODUCCION: TutorialModulo[] = [
     modulo: "Dashboard Produccion",
     titulo: "Dashboard de Producción",
     descripcion:
-      "Los indicadores de producción del período: unidades fabricadas por día, calidad y el OEE (Disponibilidad × Rendimiento × Calidad).",
+      "Los indicadores de producción del período: órdenes y flujo por procesos (cumplimiento, lead time por proceso, carga por etapa, atrasadas) y fabricación (unidades, calidad y OEE).",
     queHace: [
+      "Órdenes y flujo: órdenes creadas, en piso, terminadas, % de cumplimiento contra la fecha comprometida, lead time promedio, atrasadas, en riesgo y sin iniciar flujo.",
+      "Gráficos: lead time por proceso (real contra planeado), órdenes por proceso ahora (en proceso, recibidas y pendientes de recibir) y tendencia semanal de terminadas y % a tiempo; tabla de las órdenes atrasadas en piso con enlace a Mastertracking.",
+      "El período por defecto son los últimos 30 días; el estado en piso siempre es la foto actual.",
       "Muestra en un rango de fechas (con atajos: este mes, mes pasado, 7 días, este año) las unidades buenas y defectuosas, número de corridas y costo unitario promedio.",
       "Calcula el OEE y sus tres componentes: Disponibilidad (tiempo operativo vs planificado), Rendimiento (producción real vs el estándar de la receta) y Calidad (buenas ÷ procesadas).",
       "Grafica las unidades fabricadas por día (buenas y defectuosas).",

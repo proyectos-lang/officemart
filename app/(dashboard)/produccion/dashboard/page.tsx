@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
 import { Indicador } from "@/components/ui/indicador"
 import { getProduccionDashboard, type ProduccionDashboard } from "@/lib/services/produccion-dashboard"
+import { ResumenOrdenesProduccion } from "@/components/produccion/resumen-ordenes"
 
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
@@ -24,8 +25,9 @@ function pct(v: number | null): string {
 }
 
 export default function DashboardProduccionPage() {
-  const [desde, setDesde] = React.useState(ymd(inicioMes()))
-  const [hasta, setHasta] = React.useState(ymd(finMes()))
+  // Por defecto los últimos 30 días (a inicio de mes "este mes" casi no tiene datos).
+  const [desde, setDesde] = React.useState(() => { const d = new Date(); d.setDate(d.getDate() - 29); return ymd(d) })
+  const [hasta, setHasta] = React.useState(ymd(new Date()))
   const [data, setData] = React.useState<ProduccionDashboard | null>(null)
   const [loading, setLoading] = React.useState(true)
 
@@ -38,9 +40,12 @@ export default function DashboardProduccionPage() {
 
   React.useEffect(() => { cargar(desde, hasta) }, [desde, hasta, cargar])
 
-  function atajo(tipo: "mes" | "mesPasado" | "sieteDias" | "anio") {
+  function atajo(tipo: "mes" | "mesPasado" | "sieteDias" | "treintaDias" | "anio") {
     const hoy = new Date()
-    if (tipo === "mes") { setDesde(ymd(inicioMes())); setHasta(ymd(finMes())) }
+    if (tipo === "treintaDias") {
+      const d30 = new Date(hoy); d30.setDate(hoy.getDate() - 29)
+      setDesde(ymd(d30)); setHasta(ymd(hoy))
+    } else if (tipo === "mes") { setDesde(ymd(inicioMes())); setHasta(ymd(finMes())) }
     else if (tipo === "mesPasado") {
       const mp = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
       setDesde(ymd(inicioMes(mp))); setHasta(ymd(finMes(mp)))
@@ -61,7 +66,7 @@ export default function DashboardProduccionPage() {
         <h1 className="text-xl md:text-2xl font-bold text-foreground flex items-center gap-2">
           <BarChart3 className="h-6 w-6 text-stone-600" /> Dashboard de Producción
         </h1>
-        <p className="text-sm text-muted-foreground">Unidades fabricadas, calidad y OEE (Disponibilidad × Rendimiento × Calidad).</p>
+        <p className="text-sm text-muted-foreground">Órdenes y flujo por procesos (cumplimiento, lead time, carga por etapa) y fabricación: unidades, calidad y OEE.</p>
       </div>
 
       {/* Período */}
@@ -75,11 +80,15 @@ export default function DashboardProduccionPage() {
             <Button variant="outline" size="sm" onClick={() => atajo("mes")}>Este mes</Button>
             <Button variant="outline" size="sm" onClick={() => atajo("mesPasado")}>Mes pasado</Button>
             <Button variant="outline" size="sm" onClick={() => atajo("sieteDias")}>7 días</Button>
+            <Button variant="outline" size="sm" onClick={() => atajo("treintaDias")}>30 días</Button>
             <Button variant="outline" size="sm" onClick={() => atajo("anio")}>Este año</Button>
           </div>
         </CardContent>
       </Card>
 
+      <ResumenOrdenesProduccion desde={desde} hasta={hasta} />
+
+      <h2 className="text-lg font-semibold text-stone-800 pt-2">Fabricación (corridas) y OEE</h2>
       {loading ? (
         <div className="flex justify-center py-16"><Spinner className="h-8 w-8" /></div>
       ) : data?.featurePending ? (

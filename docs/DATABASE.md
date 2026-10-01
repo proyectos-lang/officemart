@@ -671,3 +671,13 @@ Código: `lib/services/rrhh.ts` (CRUD + puras `calcularHoras`, `documentosPorVen
 ## Storage
 
 Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de productos (`productos.foto_url`) y comprobantes de gastos (`gastos.comprobante_url`). La subida se hace vía [app/api/upload-imagen/route.ts](../app/api/upload-imagen/route.ts).
+
+---
+
+## Officemart — planeación y Mastertracking (script officemart-019)
+
+- **`produccion_operaciones.duracion_estandar_horas`** (numeric, nullable): tiempo estándar de la operación en horas laborales (L–V 8–17, sábado 8–12). Sin valor se usa `estandarPorDefecto(nombre)`.
+- **`produccion_orden_etapas.plan_inicio` / `plan_fin`** (timestamptz, nullable): línea base planeada de cada etapa. Se guarda al generar las etapas de una orden (`guardarPlanOrden`) o con «Generar planeación» (`guardarPlaneacion`). Sin las columnas, el plan se calcula al vuelo.
+- Módulo **"Mastertracking"** (Producción, `/produccion/mastertracking`).
+
+Código: `lib/utils/calendario-laboral.ts` (`abierto`, `sumarHorasLaborales`, `horasLaboralesEntre`); `lib/services/produccion-tracking.ts` (puras `planificarEtapas`, `construirTracking` — estado, etapa actual, progreso, lead time, atraso y semáforo — y `resumenProduccion` — totales, cumplimiento, lead time real vs plan por proceso, pendientes/recibidas/en proceso por proceso, tendencia semanal; I/O `getTracking`, `getOperacionesStd`, `setEstandarOperacion`, `guardarPlaneacion`, `guardarPlanOrden`). El Dashboard de Producción incluye `components/produccion/resumen-ordenes.tsx`. `produccion-flujo.getReporteFlujo` añade `leadTimes` (`calcularLeadTimes`).

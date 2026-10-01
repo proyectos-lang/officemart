@@ -180,6 +180,14 @@ export async function generarEtapasOrden(
     if (isMissingTable(error)) return { data: null, error: FLUJO_FEATURE_PENDING }
     return { data: null, error: error.message }
   }
+  // Planeación (línea base) de la orden nueva; best-effort: sin el script
+  // officemart-019 se calcula al vuelo en Mastertracking.
+  try {
+    const { guardarPlanOrden } = await import("@/lib/services/produccion-tracking")
+    await guardarPlanOrden(ordenId)
+  } catch {
+    /* sin planeación guardada */
+  }
   return { data: { creadas: filas.length }, error: null }
 }
 
