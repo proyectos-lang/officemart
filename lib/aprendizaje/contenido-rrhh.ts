@@ -78,6 +78,7 @@ export const TUTORIALES_RRHH: TutorialModulo[] = [
       "Por empleado: salario del período, horas extra, otros ingresos, devengado; IHSS y RAP del empleado sobre el equivalente mensual (con techos), ISR proyectando el salario ×12 menos IHSS y L 40,000 de gastos médicos (los extras gravables tributan a la tasa marginal), otras deducciones, neto y aportes patronales. Despliega la fila para ver cada línea.",
       "Borrador → Recalcular (si cambiaste empleados/novedades/parámetros) o Aprobar. Aprobada → Pagar: crea el gasto «Sueldos y salarios» por el neto (pagado desde caja o banco) y «Cargas sociales y retenciones» pendiente de pago a IHSS/RAP/SAR.",
       "Anular (borrador o aprobada) libera las novedades. Planilla Excel y boletas PDF (una página por empleado con firma de recibido).",
+      "El ojo de cada nómina abre su detalle en una ventana. En cada empleado, «Comprobante» descarga su comprobante de pago en PDF para enviárselo: datos del empleado (identidad, puesto, ingreso, antigüedad, IHSS, RAP, cuenta), base salarial (mensual, diaria, por hora, días pagados), ingresos, deducciones, neto en número y letras, y prestaciones informativas (aportes patronales, saldo de vacaciones, 13.º y 14.º acumulados a la fecha de corte).",
       "Nómina complementaria: si ya existe una nómina vigente del mismo tipo y período, generar otra incluye solo a los empleados que faltan (altas a mitad de mes u omisiones) y se marca «Complementaria».",
     ],
     queNoHace: [
@@ -92,7 +93,7 @@ export const TUTORIALES_RRHH: TutorialModulo[] = [
       { pregunta: "¿Por qué el IHSS es igual para salarios altos?", respuesta: "Se cotiza hasta el techo (L 11,903.13 en 2026): máximo L 595.16 del empleado. Ajusta el techo en Parámetros cuando cambie." },
       { pregunta: "¿Cómo se reparte en quincenas?", respuesta: "Salario, IHSS, RAP e ISR se calculan sobre el equivalente mensual y se toma la mitad en cada quincena." },
     ],
-    keywords: ["nomina", "planilla", "quincena", "pago de salarios", "boleta", "ihss", "rap", "isr", "retencion", "aporte patronal", "neto", "devengado", "sueldos"],
+    keywords: ["nomina", "planilla", "quincena", "pago de salarios", "boleta", "comprobante de pago", "colilla", "volante de pago", "liquidacion de nomina", "ihss", "rap", "isr", "retencion", "aporte patronal", "neto", "devengado", "sueldos"],
   },
   {
     modulo: "Parámetros RRHH",

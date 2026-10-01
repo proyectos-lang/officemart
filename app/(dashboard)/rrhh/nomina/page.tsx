@@ -19,8 +19,9 @@ import { formatHondurasDate, getHondurasTodayISODate } from "@/lib/utils/hondura
 import { exportToXlsx } from "@/lib/utils/export"
 import { getCuentas, type CuentaConfig } from "@/lib/services/cuentas"
 import { getRazonSocialForPdf } from "@/lib/services/ventas"
-import type { FrecuenciaPago } from "@/lib/services/rrhh"
-import { getNominas, getNominaCompleta, generarNomina, recalcularNomina, aprobarNomina, pagarNomina, anularNomina, planillaRows, totalesNomina, type Nomina, type NominaDetalle } from "@/lib/services/nomina"
+import { getEmpleados, getSaldosVacaciones, type FrecuenciaPago, type Empleado } from "@/lib/services/rrhh"
+import { getNominas, getNominaCompleta, generarNomina, recalcularNomina, aprobarNomina, pagarNomina, anularNomina, planillaRows, totalesNomina, calcularAguinaldoProporcional, type Nomina, type NominaDetalle } from "@/lib/services/nomina"
+import { generarBoletasNominaPdf, type PrestacionesEmpleado } from "@/lib/utils/boleta-nomina-pdf"
 
 function finDeMes(ym: string): string {
   const [y, m] = ym.split("-").map(Number)
@@ -92,53 +93,42 @@ export default function NominaPage() {
     exportToXlsx(planillaRows(sel.nomina, sel.detalle), { filename: `planilla_${sel.nomina.tipo}_${sel.nomina.periodo_desde}_${sel.nomina.periodo_hasta}`, sheetName: "Planilla" })
   }
 
-  async function boletasPdf() {
-    if (!sel) return
-    setOcupado("pdf")
-    try {
-      const [{ jsPDF }, autoTableMod, empresa] = await Promise.all([import("jspdf"), import("jspdf-autotable"), getRazonSocialForPdf()])
-      const autoTable = autoTableMod.default
-      const doc = new jsPDF()
-      const w = doc.internal.pageSize.getWidth()
-      const nombreEmpresa = empresa?.nombre_comercial || empresa?.nombre_empresa || user?.razon_social_nombre || "Empresa"
-      sel.detalle.forEach((d, idx) => {
-        if (idx > 0) doc.addPage()
-        doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(30, 30, 30)
-        doc.text(nombreEmpresa, 14, 16)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-        doc.text(`RTN: ${empresa?.documento || "N/A"}`, 14, 22)
-        doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(30, 30, 30)
-        doc.text("BOLETA DE PAGO", w - 14, 16, { align: "right" })
-        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-        doc.text(`Nómina ${sel.nomina.tipo.toLowerCase()} · ${formatHondurasDate(sel.nomina.periodo_desde)} a ${formatHondurasDate(sel.nomina.periodo_hasta)} · #${sel.nomina.id}`, w - 14, 22, { align: "right" })
-        doc.setTextColor(30, 30, 30); doc.setFontSize(11); doc.setFont("helvetica", "bold")
-        doc.text(d.empleado_nombre, 14, 34)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-        doc.text(`Salario mensual ${formatCurrency(d.salario_mensual)} · días pagados ${d.dias_periodo - d.dias_no_pagados} de ${d.dias_periodo}`, 14, 39)
-        const ingresos = d.lineas.filter((l) => l.tipo === "ingreso")
-        const deducciones = d.lineas.filter((l) => l.tipo === "deduccion")
-        const patronal = d.lineas.filter((l) => l.tipo === "patronal")
-        autoTable(doc, { startY: 44, head: [["Ingresos", "Cant.", "Monto"]], body: [...ingresos.map((l) => [l.concepto, l.cantidad != null ? String(l.cantidad) : "", formatCurrency(l.monto)]), ["Total devengado", "", formatCurrency(d.total_devengado)]], styles: { fontSize: 8 }, headStyles: { fillColor: [41, 37, 36] }, columnStyles: { 2: { halign: "right" }, 1: { halign: "right" } }, didParseCell: (c) => { if (c.section === "body" && c.row.index === ingresos.length) c.cell.styles.fontStyle = "bold" } })
-        const y1 = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 60) + 5
-        autoTable(doc, { startY: y1, head: [["Deducciones", "", "Monto"]], body: [...deducciones.map((l) => [l.concepto, "", formatCurrency(l.monto)]), ["Total deducciones", "", formatCurrency(d.total_deducciones)]], styles: { fontSize: 8 }, headStyles: { fillColor: [120, 113, 108] }, columnStyles: { 2: { halign: "right" } }, didParseCell: (c) => { if (c.section === "body" && c.row.index === deducciones.length) c.cell.styles.fontStyle = "bold" } })
-        const y2 = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y1) + 5
-        autoTable(doc, { startY: y2, body: [["NETO A PAGAR", formatCurrency(d.neto)]], styles: { fontSize: 11, fontStyle: "bold" }, columnStyles: { 1: { halign: "right" } } })
-        if (patronal.length > 0) {
-          const y3 = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y2) + 5
-          autoTable(doc, { startY: y3, head: [["Aportes patronales (informativo)", "Monto"]], body: patronal.map((l) => [l.concepto, formatCurrency(l.monto)]), styles: { fontSize: 7, textColor: [100, 100, 100] }, headStyles: { fillColor: [214, 211, 209], textColor: [60, 60, 60] }, columnStyles: { 1: { halign: "right" } } })
-        }
-        const yF = doc.internal.pageSize.getHeight() - 30
-        doc.setDrawColor(180, 180, 180)
-        doc.line(20, yF, 90, yF); doc.line(w - 90, yF, w - 20, yF)
-        doc.setFontSize(8); doc.setTextColor(100, 100, 100)
-        doc.text("Recibí conforme (empleado)", 55, yF + 5, { align: "center" }); doc.text("Empresa", w - 55, yF + 5, { align: "center" })
-        doc.setFontSize(7); doc.setTextColor(168, 162, 158)
-        doc.text("Generado por EasyCount", w / 2, doc.internal.pageSize.getHeight() - 8, { align: "center" })
+  /** Empresa, fichas y prestaciones acumuladas a la fecha de corte de la nómina. */
+  async function datosBoletas(nomina: Nomina) {
+    const [empresa, emps, vac] = await Promise.all([getRazonSocialForPdf(), getEmpleados(), getSaldosVacaciones({ hoy: nomina.periodo_hasta })])
+    const empleados = new Map<number, Empleado>(emps.data.filter((e) => e.id != null).map((e) => [e.id!, e]))
+    const corte = nomina.periodo_hasta
+    const anio = Number(corte.slice(0, 4))
+    // 13.º: año calendario (se paga en diciembre). 14.º: julio a junio (se paga en junio).
+    const desde13 = `${anio}-01-01`
+    const desde14 = Number(corte.slice(5, 7)) >= 7 ? `${anio}-07-01` : `${anio - 1}-07-01`
+    const prestaciones = new Map<number, PrestacionesEmpleado>()
+    for (const e of empleados.values()) {
+      const d13 = calcularAguinaldoProporcional(e.salario_mensual, e.fecha_ingreso, { desde: desde13, hasta: corte })
+      const d14 = calcularAguinaldoProporcional(e.salario_mensual, e.fecha_ingreso, { desde: desde14, hasta: corte })
+      prestaciones.set(e.id!, {
+        vacaciones: vac.data.find((v) => v.empleado_id === e.id) ?? null,
+        decimoTercero: { ...d13, desde: e.fecha_ingreso && e.fecha_ingreso > desde13 ? e.fecha_ingreso : desde13 },
+        decimoCuarto: { ...d14, desde: e.fecha_ingreso && e.fecha_ingreso > desde14 ? e.fecha_ingreso : desde14 },
       })
-      doc.save(`Boletas_${sel.nomina.tipo}_${sel.nomina.periodo_desde}_${sel.nomina.periodo_hasta}.pdf`)
-    } catch (err) {
-      console.error(err)
-      toast({ title: "No se pudo generar el PDF", variant: "destructive" })
+    }
+    return {
+      empresa: { nombre: empresa?.nombre_comercial || empresa?.nombre_empresa || user?.razon_social_nombre || "Empresa", rtn: empresa?.documento ?? null, direccion: empresa?.direccion ?? null, telefono: empresa?.telefono ?? null },
+      empleados,
+      prestaciones,
+    }
+  }
+
+  async function boletasPdf(soloEmpleado?: NominaDetalle) {
+    if (!sel) return
+    setOcupado(soloEmpleado ? `pdf${soloEmpleado.id}` : "pdf")
+    try {
+      const base = await datosBoletas(sel.nomina)
+      const nombreArchivo = soloEmpleado
+        ? `Comprobante_${soloEmpleado.empleado_nombre.replace(/s+/g, "_")}_${sel.nomina.periodo_desde}_${sel.nomina.periodo_hasta}.pdf`
+        : undefined
+      const r = await generarBoletasNominaPdf({ ...base, nomina: sel.nomina, detalles: soloEmpleado ? [soloEmpleado] : sel.detalle, filename: nombreArchivo })
+      if (!r.ok) toast({ title: "No se pudo generar el PDF", description: r.error, variant: "destructive" })
     } finally {
       setOcupado(null)
     }
@@ -188,9 +178,15 @@ export default function NominaPage() {
         </Table>
       </div>
 
+      <Dialog open={sel != null} onOpenChange={(o) => { if (!o) setSel(null) }}>
+        <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Detalle de nómina</DialogTitle>
+            <DialogDescription>Despliega un empleado para ver sus líneas; «Comprobante» descarga su PDF para enviárselo.</DialogDescription>
+          </DialogHeader>
       {sel && tot && (
-        <Card>
-          <CardContent className="p-4 space-y-3">
+        <div>
+          <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="font-semibold text-stone-800 flex items-center gap-2">Nómina #{sel.nomina.id} · {sel.nomina.tipo} · {formatHondurasDate(sel.nomina.periodo_desde)} – {formatHondurasDate(sel.nomina.periodo_hasta)} {badge(sel.nomina)}</p>
@@ -198,7 +194,7 @@ export default function NominaPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="outline" size="sm" onClick={exportarPlanilla} className="gap-1"><Download className="h-4 w-4" /> Planilla</Button>
-                <Button variant="outline" size="sm" onClick={boletasPdf} disabled={ocupado === "pdf"} className="gap-1">{ocupado === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} Boletas PDF</Button>
+                <Button variant="outline" size="sm" onClick={() => boletasPdf()} disabled={ocupado === "pdf"} className="gap-1">{ocupado === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} Boletas PDF</Button>
                 {sel.nomina.estado === "Borrador" && (
                   <>
                     <Button variant="outline" size="sm" onClick={() => accion("recalc", () => recalcularNomina(sel.nomina.id), "Nómina recalculada")} disabled={ocupado === "recalc"} className="gap-1"><RefreshCw className={`h-4 w-4 ${ocupado === "recalc" ? "animate-spin" : ""}`} /> Recalcular</Button>
@@ -211,7 +207,7 @@ export default function NominaPage() {
             </div>
             <div className="overflow-x-auto border rounded-lg">
               <Table>
-                <TableHeader><TableRow className="bg-stone-50"><TableHead className="w-8"></TableHead><TableHead>Empleado</TableHead><TableHead className="text-right">Salario per.</TableHead><TableHead className="text-right">H. extra</TableHead><TableHead className="text-right">Otros</TableHead><TableHead className="text-right">Devengado</TableHead><TableHead className="text-right">IHSS</TableHead><TableHead className="text-right">RAP</TableHead><TableHead className="text-right">ISR</TableHead><TableHead className="text-right">Otras ded.</TableHead><TableHead className="text-right">Neto</TableHead><TableHead className="text-right">Patronal</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow className="bg-stone-50"><TableHead className="w-8"></TableHead><TableHead>Empleado</TableHead><TableHead className="text-right">Salario per.</TableHead><TableHead className="text-right">H. extra</TableHead><TableHead className="text-right">Otros</TableHead><TableHead className="text-right">Devengado</TableHead><TableHead className="text-right">IHSS</TableHead><TableHead className="text-right">RAP</TableHead><TableHead className="text-right">ISR</TableHead><TableHead className="text-right">Otras ded.</TableHead><TableHead className="text-right">Neto</TableHead><TableHead className="text-right">Patronal</TableHead><TableHead className="w-28"></TableHead></TableRow></TableHeader>
                 <TableBody>
                   {sel.detalle.map((d) => {
                     const open = abierto.has(d.id)
@@ -230,11 +226,16 @@ export default function NominaPage() {
                           <TableCell className="text-right font-mono">{d.otras_deducciones ? formatCurrency(d.otras_deducciones) : ""}</TableCell>
                           <TableCell className={`text-right font-mono font-semibold ${d.neto < 0 ? "text-red-700" : ""}`}>{formatCurrency(d.neto)}</TableCell>
                           <TableCell className="text-right font-mono text-muted-foreground">{formatCurrency(d.ihss_patronal + d.rap_patronal)}</TableCell>
+                          <TableCell onClick={(ev) => ev.stopPropagation()}>
+                            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => boletasPdf(d)} disabled={ocupado === `pdf${d.id}`} title="Descargar el comprobante de pago de este empleado">
+                              {ocupado === `pdf${d.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />} Comprobante
+                            </Button>
+                          </TableCell>
                         </TableRow>
                         {open && (
                           <TableRow className="bg-stone-50/60">
                             <TableCell></TableCell>
-                            <TableCell colSpan={11}>
+                            <TableCell colSpan={12}>
                               <div className="grid gap-1 sm:grid-cols-2 text-xs py-1">
                                 {d.lineas.map((l, i) => (
                                   <div key={i} className="flex justify-between gap-2 border-b border-dashed py-0.5">
@@ -252,9 +253,11 @@ export default function NominaPage() {
                 </TableBody>
               </Table>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={generar} onOpenChange={setGenerar}>
         <DialogContent className="sm:max-w-md">
