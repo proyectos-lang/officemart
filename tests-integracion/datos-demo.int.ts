@@ -317,7 +317,7 @@ describe("Datos de demostración Office Mart", () => {
       if (items.length === 0) continue
       const total = r2(items.reduce((a, p) => a + p.costo * p.compra, 0))
       const oc = await createCompra(
-        { proveedor_id: provIds[idx], fecha_orden: ts(fechas[idx], 9), fecha_tentativa: fechas[idx], moneda: "LPS", tasa_cambio: 1, costos_importacion: 0, impuestos_compra: 0, otros_costos: 0, total_compra_local: total, estado: "Pendiente" },
+        { proveedor_id: provIds[idx], fecha_orden: ts(fechas[idx], 9), fecha_tentativa: fechas[idx], moneda: "LPS", tasa_cambio: 1, costos_importacion: 0, impuestos_compra: 0, otros_costos: 0, total_compra_local: 0, subtotal: total, total, estado: "Pendiente" },
         items.map((p) => ({ producto_id: prodId[p.codigo], cantidad: p.compra, costo_unitario_moneda_origen: p.costo })),
       )
       ok(oc, `OC proveedor ${idx}`)
@@ -663,7 +663,7 @@ describe("Datos de demostración Office Mart", () => {
       for (const [provId, cods] of porProv) {
         const total = r2(cods.reduce((a, c) => a + prodCosto[c] * plan[c], 0))
         const oc = await createCompra(
-          { proveedor_id: provId, numero_factura: provId === provIds[0] ? `LIC-${m.mes}` : null, fecha_orden: ts(m.oc, 9), fecha_tentativa: m.oc, moneda: "LPS", tasa_cambio: 1, costos_importacion: 0, impuestos_compra: 0, otros_costos: 0, total_compra_local: total, estado: "Pendiente" },
+          { proveedor_id: provId, numero_factura: provId === provIds[0] ? `LIC-${m.mes}` : null, fecha_orden: ts(m.oc, 9), fecha_tentativa: m.oc, moneda: "LPS", tasa_cambio: 1, costos_importacion: 0, impuestos_compra: 0, otros_costos: 0, total_compra_local: 0, subtotal: total, total, estado: "Pendiente" },
           cods.map((c) => ({ producto_id: prodId[c], cantidad: plan[c], costo_unitario_moneda_origen: prodCosto[c] })),
         )
         ok(oc, "OC de reabastecimiento")

@@ -216,6 +216,15 @@ export async function createCompra(
       return { data: null, error: SESION_INVALIDA_ERROR }
     }
 
+    // Valor de la orden (moneda de origen) = Σ cantidad × costo de las líneas.
+    // Si el caller no lo envía (p. ej. Recepción por factura), se calcula aquí
+    // para que el detalle de la OC no muestre total 0.
+    const valorOrden = +detalles
+      .reduce((a, d) => a + (Number(d.cantidad) || 0) * (Number(d.costo_unitario_moneda_origen) || 0), 0)
+      .toFixed(2)
+    if (encabezado.subtotal == null) encabezado = { ...encabezado, subtotal: valorOrden }
+    if (encabezado.total == null) encabezado = { ...encabezado, total: valorOrden }
+
     // Insert encabezado (sello completo: empresa + usuario que crea la orden).
     // fecha_orden HN-as-UTC (dia de negocio); si el caller ya la trae, gana.
     let { data: compraData, error: compraError } = await supabase
