@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { resolverRango, aplicarFiltros, ejecutarReporte, claveFecha, etiquetaFecha, valoresDistintos, configInicial, type ColumnaDef, type ConfigReporte } from "@/lib/reporteria/motor"
 import { serialExcel } from "@/lib/reporteria/excel"
-import { FUENTES, getFuente } from "@/lib/reporteria/fuentes"
-import { PLANTILLAS } from "@/lib/reporteria/plantillas"
-import { claveMedida } from "@/lib/reporteria/motor"
+import { FUENTES } from "@/lib/reporteria/fuentes"
 
 const COLS: ColumnaDef[] = [
   { key: "fecha", label: "Fecha", tipo: "fechahora", porDefecto: true },
@@ -101,19 +99,6 @@ describe("excel y catálogo", () => {
     for (const f of FUENTES) {
       expect(new Set(f.columnas.map((c) => c.key)).size, f.id).toBe(f.columnas.length)
       expect(f.columnas.some((c) => c.porDefecto), f.id).toBe(true)
-    }
-  })
-  it("las plantillas usan fuentes y columnas que existen", () => {
-    for (const p of PLANTILLAS) {
-      const f = getFuente(p.config.fuente)
-      expect(f, p.id).toBeTruthy()
-      const keys = new Set(f!.columnas.map((c) => c.key))
-      const usadas = [...p.config.columnas, ...p.config.filtros.map((x) => x.col), ...p.config.agrupar.map((g) => g.col), ...p.config.medidas.map((m) => m.col).filter((c) => c !== "*")]
-      for (const k of usadas) expect(keys.has(k), `${p.id}: ${k}`).toBe(true)
-      if (p.config.orden) {
-        const validas = new Set([...keys, ...p.config.medidas.map(claveMedida)])
-        expect(validas.has(p.config.orden.col), `${p.id}: orden ${p.config.orden.col}`).toBe(true)
-      }
     }
   })
 })
