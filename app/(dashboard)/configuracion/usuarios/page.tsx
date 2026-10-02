@@ -615,6 +615,7 @@ export default function UsuariosPage() {
                     // 2) Agrupar los MODULOS canonicos por categoria.
                     const gruposCanon: Record<Categoria, ModuloGranular[]> = {
                       Dashboard: [],
+                      Reporteria: [],
                       Ventas: [],
                       Compras: [],
                       Inventario: [],

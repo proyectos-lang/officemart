@@ -32,6 +32,7 @@ Officemart: su estructura ya viene clonada.
 | O-017 | `officemart-017-firma-digital.sql` | **Firma digital**: `documentos_firmados`, `documentos_firmas` (RLS), bucket privado `documentos` + políticas de `storage.objects` por carpeta de empresa, módulo **Firma Digital**. Correo opcional con `RESEND_API_KEY`/`RESEND_FROM`. Requiere O-000 |
 | O-018 | `officemart-018-rrhh.sql` | **RRHH y nómina**: `empleados`, `empleados_documentos`, `rrhh_marcaciones`, `rrhh_novedades`, `rrhh_parametros`, `rrhh_nominas`, `rrhh_nominas_detalle` (RLS) y módulos **Empleados / Asistencia / Novedades / Nómina / Parámetros RRHH**. Requiere O-017 (bucket `documentos`) |
 | O-019 | `officemart-019-planeacion-tracking.sql` | **Planeación y Mastertracking**: `produccion_operaciones.duracion_estandar_horas`, `produccion_orden_etapas.plan_inicio/plan_fin` (columnas nullable) y módulo **Mastertracking**. Requiere O-010 |
+| O-020 | `officemart-020-reporteria.sql` | **Reportería**: `reportes_guardados` (configuración jsonb de reportes reutilizables, RLS) y módulo **Reportería** (categoría propia). Requiere O-000 |
 
 Scripts nuevos de Officemart: `officemart-NNN-*.sql`, con objetos calificados
 `officemart.` Si llega un script 0NN nuevo desde EasyCount que haga falta

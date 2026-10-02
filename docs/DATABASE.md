@@ -681,3 +681,10 @@ Supabase Storage guarda: logo de la empresa (`razon_social.logo_url`), fotos de 
 - Módulo **"Mastertracking"** (Producción, `/produccion/mastertracking`).
 
 Código: `lib/utils/calendario-laboral.ts` (`abierto`, `sumarHorasLaborales`, `horasLaboralesEntre`); `lib/services/produccion-tracking.ts` (puras `planificarEtapas`, `construirTracking` — estado, etapa actual, progreso, lead time, atraso y semáforo — y `resumenProduccion` — totales, cumplimiento, lead time real vs plan por proceso, pendientes/recibidas/en proceso por proceso, tendencia semanal; I/O `getTracking`, `getOperacionesStd`, `setEstandarOperacion`, `guardarPlaneacion`, `guardarPlanOrden`). El Dashboard de Producción incluye `components/produccion/resumen-ordenes.tsx`. `produccion-flujo.getReporteFlujo` añade `leadTimes` (`calcularLeadTimes`).
+
+## Officemart — Reportería (script officemart-020)
+
+- **`reportes_guardados`** (razon_social_id, nombre, descripcion, fuente, `config` jsonb, favorito, exportaciones, ultima_exportacion, usuario, created_at, updated_at; RLS `reportes_guardados_tenant`): reportes reutilizables. `config` = `ConfigReporte` (`lib/reporteria/motor.ts`): fuente, columnas en orden, rango (preset relativo o desde/hasta), filtros, agrupar (hasta 3 niveles; fechas por día/semana/mes/trimestre/año), medidas, orden y totales. El preset relativo se recalcula en cada exportación. Sin la tabla, `lib/services/reportes-guardados.ts` guarda en localStorage.
+- Módulo **"Reportería"** (categoría propia `Reporteria`, `/reporteria`).
+
+Código: `lib/reporteria/fuentes.ts` (34 fuentes de lectura sobre las tablas existentes, agrupadas por sistema; cada una declara columnas tipadas y qué fecha filtra), `motor.ts` (puros: `resolverRango`, `aplicarFiltros`, `ejecutarReporte`), `excel.ts` (`exportarReporteXlsx`: celdas tipadas, fechas como serial de Excel, autofiltro, hoja «Parámetros»), `plantillas.ts` (13 reportes prediseñados). Sin tablas nuevas de datos: solo lectura.

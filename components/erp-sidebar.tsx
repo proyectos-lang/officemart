@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/lib/contexts/auth-context"
-import { Home, ChevronRight, LayoutDashboard, ShoppingCart, FileText, ClipboardList, CreditCard, Settings, GraduationCap, Sparkles, Factory, Handshake, Briefcase } from "lucide-react"
+import { Home, ChevronRight, LayoutDashboard, ShoppingCart, FileText, ClipboardList, CreditCard, Settings, GraduationCap, Sparkles, Factory, Handshake, Briefcase, FileSpreadsheet } from "lucide-react"
 
 import {
   Sidebar,
@@ -36,6 +36,7 @@ import { useActualizaciones } from "@/lib/hooks/use-actualizaciones"
 // Iconos por categoria (el contenedor del collapsible)
 const CATEGORIA_ICON: Record<Categoria, React.ComponentType<{ className?: string }>> = {
   Dashboard: LayoutDashboard,
+  Reporteria: FileSpreadsheet,
   Ventas: ShoppingCart,
   Compras: FileText,
   Inventario: ClipboardList,

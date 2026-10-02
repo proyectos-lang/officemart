@@ -2,6 +2,7 @@ import { MODULOS } from "@/lib/constants/modulos"
 import type { TutorialModulo } from "./types"
 import { TUTORIAL_GENERAL } from "./contenido-general"
 import { TUTORIALES_DASHBOARD } from "./contenido-dashboard"
+import { TUTORIALES_REPORTERIA } from "./contenido-reporteria"
 import { TUTORIALES_VENTAS } from "./contenido-ventas"
 import { TUTORIALES_COMPRAS } from "./contenido-compras"
 import { TUTORIALES_INVENTARIO } from "./contenido-inventario"
@@ -17,6 +18,7 @@ export { TUTORIAL_GENERAL }
 /** Todos los tutoriales de modulos (sin el articulo general). */
 export const TUTORIALES: TutorialModulo[] = [
   ...TUTORIALES_DASHBOARD,
+  ...TUTORIALES_REPORTERIA,
   ...TUTORIALES_VENTAS,
   ...TUTORIALES_COMPRAS,
   ...TUTORIALES_INVENTARIO,

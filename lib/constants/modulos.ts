@@ -61,11 +61,13 @@ import {
   ListPlus,
   SlidersHorizontal,
   ChartGantt,
+  FileSpreadsheet,
   type LucideIcon,
 } from "lucide-react"
 
 export type Categoria =
   | "Dashboard"
+  | "Reporteria"
   | "Ventas"
   | "Compras"
   | "Inventario"
@@ -94,20 +96,23 @@ export interface ModuloGranular {
 }
 
 /**
- * 71 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
+ * 72 modulos granulares. Cualquier cambio aqui debe replicarse en la tabla
  * `modulos` (y viceversa). NOTA: "Listas de Precios", "Facturación CAI",
  * "Vendedores y Zonas", "Reclamos de Ventas", "Auditoría", "Puntos de
  * Facturación", "Cotizaciones", "Estado de Cuenta", "Reportes de Ventas",
  * "Trazabilidad", "Backorder", "Reportes de Compras", "Reposición",
  * "Comisiones", "Consignación", "Toma Física", "Conciliación Bancaria",
  * "Balance", "CRM Pipeline", "CRM Agenda", "CRM Reportes", "Firma Digital",
- * "Mastertracking", los 5 de RRHH y TODOS los de la
+ * "Mastertracking", "Reportería", los 5 de RRHH y TODOS los de la
  * categoria "Produccion" NO van en MODULOS_BASE (nacen deshabilitados por
  * empresa; el super-admin los habilita desde /plataforma).
  */
 export const MODULOS: ReadonlyArray<ModuloGranular> = [
   // ── Dashboard ──────────────────────────────────────────────────────────
   { nombre: "Dashboard", href: "/dashboard", categoria: "Dashboard", icon: LayoutDashboard },
+
+  // ── Reportería ─────────────────────────────────────────────────────────
+  { nombre: "Reportería", href: "/reporteria", categoria: "Reporteria", icon: FileSpreadsheet },
 
   // ── Ventas ─────────────────────────────────────────────────────────────
   { nombre: "Dashboard Ventas", href: "/ventas/dashboard", categoria: "Ventas", icon: BarChart3 },
@@ -336,6 +341,7 @@ export function moduloHabilitadoParaEmpresa(
 /** Orden fijo de categorias para el sidebar */
 export const CATEGORIAS_ORDEN: ReadonlyArray<Categoria> = [
   "Dashboard",
+  "Reporteria",
   "Ventas",
   "Compras",
   "Inventario",
